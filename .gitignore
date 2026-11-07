@@ -1,0 +1,20 @@
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+node_modules/
+.idea/
+*.iml
+# secrets never commit
+**/deepseek*.key
+**/github*.token
+local.secrets*
+# android build
+android-watch/.gradle/
+android-watch/build/
+android-watch/**/build/
+android-watch/local.properties
+android-watch/*.apk
+android-watch/**/*.apk
+android-watch/.idea/

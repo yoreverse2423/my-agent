@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "timezone": "Asia/Shanghai",
+  "updatedAt": "2026-11-08T12:00:00+08:00",
+  "tasks": [
+    {
+      "id": "math-2026-11-08-1",
+      "date": "2026-11-08",
+      "subject": "数学",
+      "from": "监工头bot",
+      "title": "导数小题 20 分钟",
+      "body": "完成学校作业外：导数定义与几何意义 3 题（无答案）。做完把不会的点记到存档。",
+      "slot": "午间",
+      "status": "active",
+      "priority": 1
+    },
+    {
+      "id": "eng-2026-11-08-1",
+      "date": "2026-11-08",
+      "subject": "英语",
+      "from": "英语bot",
+      "title": "完形高频搭配 15 词",
+      "body": "用小单词机过一遍今日阅读相关搭配；不会的记到薄弱点。",
+      "slot": "傍晚",
+      "status": "active",
+      "priority": 2
+    },
+    {
+      "id": "phy-2026-11-08-1",
+      "date": "2026-11-08",
+      "subject": "物理",
+      "from": "监工头bot",
+      "title": "动量守恒概念过一遍",
+      "body": "晚自习离线：默写动量守恒适用条件与典型模型各 3 条，自检后交给物理bot。",
+      "slot": "晚自习",
+      "status": "active",
+      "priority": 3
+    }
+  ]
+}

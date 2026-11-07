@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+WWW="$ROOT/android-watch/app/src/main/assets/www"
+mkdir -p "$WWW/data"
+cp "$ROOT/index.html" "$ROOT/style.css" "$ROOT/app.js" "$ROOT/site.webmanifest" "$WWW/"
+cp "$ROOT/data/"*.json "$WWW/data/"
+echo "synced → $WWW"
