@@ -7,3 +7,10 @@ Lossless display: icons/preview-native-lossless.png
 Generation: contain into square with transparent letterbox only when needed;
 no face crop, no rounded mask, no JPEG re-encode of derivatives (PNG only).
 System launcher may still apply its own adaptive/round mask (uncontrollable).
+
+---
+Restored master (0.2.3):
+  original JPEG: icons/source-agent-original.jpg
+  SHA256 30ff63316732e5fe462cd63b650fd3c9beb169999c3d269225309b3c7631cceb
+  master PNG: icons/master-restored-x2.png (1244x1244)
+  method: OpenCV dnn_superres FSRCNN_x2; pad 622x620→622 then 2x; contain downscale; no mask

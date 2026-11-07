@@ -21,7 +21,7 @@
   var DEEPSEEK_MODELS = ['deepseek-chat', 'deepseek-reasoner'];
   var PAGES_BASE = 'https://yoreverse2423.github.io/my-agent/';
   var APK_URL = 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk';
-  var APK_VERSION = '0.2.2';
+  var APK_VERSION = '0.2.3';
   var AUTO_UPLOAD_GAP_MS = 5 * 60 * 1000;
   var AUTO_UPLOAD_TICK_MS = 20 * 1000;
   var BRAND_NAME = "Yore's agent";
