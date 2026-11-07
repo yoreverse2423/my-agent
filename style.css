@@ -1,14 +1,18 @@
 :root {
-  --bg: #f4f1e8;
-  --ink: #1c2a26;
-  --muted: #5f716b;
-  --primary: #0d6b57;
-  --primary-soft: rgba(13, 107, 87, 0.12);
-  --card: #fffdf8;
-  --line: rgba(28, 42, 38, 0.1);
+  /* Yore's agent — palette from yellow-hair garden icon (warm gold + soft green) */
+  --bg: #f7f3e6;
+  --ink: #2a2418;
+  --muted: #7a6d58;
+  --primary: #c4892e;
+  --primary-deep: #8f6a2a;
+  --primary-soft: rgba(196, 137, 46, 0.14);
+  --accent-green: #6f9e62;
+  --accent-sky: #6eb0b8;
+  --card: #fffaf0;
+  --line: rgba(42, 36, 24, 0.1);
   --danger: #b23b2f;
   --warn: #b0792a;
-  --shadow: 0 8px 24px rgba(28, 42, 38, 0.08);
+  --shadow: 0 8px 22px rgba(90, 70, 30, 0.08);
   --radius: 16px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --tabbar-h: 64px;
@@ -25,8 +29,9 @@ html, body {
   min-height: 100%;
   color: var(--ink);
   background:
-    radial-gradient(circle at 6% -4%, rgba(190, 225, 210, 0.72), transparent 31rem),
-    radial-gradient(circle at 103% 18%, rgba(246, 218, 184, 0.54), transparent 26rem),
+    radial-gradient(circle at 8% -6%, rgba(255, 236, 190, 0.75), transparent 28rem),
+    radial-gradient(circle at 100% 12%, rgba(190, 220, 175, 0.45), transparent 24rem),
+    radial-gradient(circle at 50% 110%, rgba(110, 176, 184, 0.12), transparent 22rem),
     var(--bg);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
@@ -63,7 +68,7 @@ button:focus, a:focus, input:focus, textarea:focus, select:focus,
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible,
 select:focus-visible, [tabindex]:focus-visible, [role="button"]:focus-visible,
 .btn:focus-visible, .tab-item:focus-visible, .card:focus-visible {
-  outline: 2px solid rgba(13, 107, 87, 0.28);
+  outline: 2px solid rgba(196, 137, 46, 0.35);
   outline-offset: 2px;
 }
 
@@ -88,7 +93,7 @@ select:focus-visible, [tabindex]:focus-visible, [role="button"]:focus-visible,
   position: sticky;
   top: 0;
   z-index: 5;
-  background: linear-gradient(180deg, rgba(244,241,232,0.96), rgba(244,241,232,0.82) 70%, transparent);
+  background: linear-gradient(180deg, rgba(247,243,230,0.97), rgba(247,243,230,0.84) 70%, transparent);
   backdrop-filter: blur(8px);
 }
 
@@ -98,7 +103,7 @@ img.brand-mark, .brand-mark {
   display: block;
   object-fit: cover;
   background: var(--primary);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow), 0 0 0 2px rgba(255,250,240,0.9);
   flex-shrink: 0;
 }
 .brand-title { margin: 0; font-size: 18px; line-height: 1.2; }
@@ -174,7 +179,7 @@ img.brand-mark, .brand-mark {
 .task-from { font-size: 12px; color: var(--muted); margin-top: 6px; }
 
 .subj-数学 { background: #3b82f6; }
-.subj-英语 { background: #0d6b57; }
+.subj-英语 { background: #6f9e62; }
 .subj-物理 { background: #8b5cf6; }
 .subj-化学 { background: #ef6c3a; }
 .subj-语文 { background: #d9673f; }
@@ -306,7 +311,7 @@ img.brand-mark, .brand-mark {
   width: 22px; height: 22px; border-radius: 8px;
   display: grid; place-items: center;
   font-size: 12px; font-weight: 700;
-  background: rgba(28,42,38,0.06);
+  background: rgba(196,137,46,0.10);
 }
 .tab-item.is-active .tab-ico { background: var(--primary); color: #fffdf8; }
 
@@ -318,7 +323,7 @@ img.brand-mark, .brand-mark {
   max-width: min(90vw, 420px);
   padding: 10px 14px;
   border-radius: 12px;
-  background: rgba(28, 42, 38, 0.92);
+  background: rgba(42, 36, 24, 0.92);
   color: #fffdf8;
   font-size: 13px;
   opacity: 0;
@@ -399,7 +404,7 @@ img.brand-mark, .brand-mark {
   align-items: center;
   padding: 8px 10px;
   border-top: 1px solid var(--line);
-  background: rgba(255,253,248,0.96);
+  background: rgba(255,250,240,0.96);
   backdrop-filter: blur(8px);
 }
 .chat-input {

@@ -3,8 +3,8 @@
   "short_name": "Yore's agent",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#f4f1e8",
-  "theme_color": "#0d6b57",
+  "background_color": "#f7f3e6",
+  "theme_color": "#c4892e",
   "lang": "zh-CN",
   "icons": [
     { "src": "favicon-32.png", "sizes": "32x32", "type": "image/png" },
