@@ -236,28 +236,45 @@ public class MainActivity extends Activity {
     }
 
     private boolean handleUrl(Uri uri) {
-        if (uri == null) return false;
+        if (uri == null) {
+            return false;
+        }
         String scheme = uri.getScheme();
-        if (scheme == null) return false;
+        if (scheme == null) {
+            return false;
+        }
+        scheme = scheme.toLowerCase();
 
-        if ("file".equalsIgnoreCase(scheme)) {
+        if ("file".equals(scheme)) {
             String path = uri.getPath();
-            if (path != null && path.toLowerCase().endsWith(".apk")) {
+            if (path == null) {
+                return true; // block unknown
+            }
+            String lower = path.toLowerCase();
+            if (lower.endsWith(".apk")) {
                 showToast("手表版已随应用安装；重装请从网页版下载到电脑后 ADB 安装");
                 return true;
             }
+            // Only packaged assets may load in this WebView.
+            if (path.contains("/android_asset/")) {
+                return false;
+            }
+            showToast("小学习机仅加载应用内页面");
+            return true;
+        }
+
+        if ("about".equals(scheme)
+                || "blob".equals(scheme)
+                || "data".equals(scheme)
+                || "javascript".equals(scheme)) {
             return false;
         }
 
-        if ("about".equalsIgnoreCase(scheme)
-                || "blob".equalsIgnoreCase(scheme)
-                || "data".equalsIgnoreCase(scheme)
-                || "javascript".equalsIgnoreCase(scheme)) {
-            return false;
-        }
-
-        if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
-            return false;
+        // Block navigating the shell to arbitrary sites while StudyHubNative is injected.
+        // XHR/fetch to GitHub/DeepSeek still works from local JS.
+        if ("http".equals(scheme) || "https".equals(scheme)) {
+            showToast("小学习机仅使用本地页面；网络请求由应用内接口完成");
+            return true;
         }
 
         try {

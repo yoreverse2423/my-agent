@@ -19,6 +19,8 @@
   var DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/chat/completions';
   var DEEPSEEK_MODELS = ['deepseek-chat', 'deepseek-reasoner'];
   var PAGES_BASE = 'https://yoreverse2423.github.io/my-agent/';
+  var APK_URL = 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk';
+  var APK_VERSION = '0.2.0';
 
   var SUBJECTS = ['综合', '数学', '英语', '物理', '化学', '语文', '地理'];
 
@@ -1085,12 +1087,17 @@
 
       '<section class="card">' +
         '<h2 class="card-title">ColorOS 手表 APK</h2>' +
-        '<p class="muted">手表包会在<strong>网页版验证通过后</strong>再提供下载。</p>' +
+        '<p class="muted">版本 <strong>0.2.0</strong>（armeabi-v7a · 离线 WebView · 原生 DeepSeek · 去黄框）。</p>' +
+        '<div class="btn-row">' +
+          '<a class="btn" href="downloads/xiaoxuexiji-watch-armeabi-v7a.apk" download>下载手表 APK</a>' +
+          '<a class="btn secondary" href="' + PAGES_BASE + 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk" target="_blank" rel="noopener noreferrer">Pages 直链</a>' +
+        '</div>' +
+        '<p class="muted" style="margin-top:10px">电脑安装：<code>adb install -r xiaoxuexiji-watch-armeabi-v7a.apk</code>。校验见同目录 <code>.sha256</code>。</p>' +
       '</section>' +
 
       '<section class="card">' +
         '<h2 class="card-title">关于</h2>' +
-        '<p class="muted">小学习机 StudyHub v0.1.1 · 默认仓库 <code>yoreverse2423/my-agent</code>。问答清屏只藏界面；完整 <code>chats</code> 仍上传。协议见 docs/bot-protocol.md。</p>' +
+        '<p class="muted">小学习机 StudyHub v0.2.0 · 默认仓库 <code>yoreverse2423/my-agent</code>。问答清屏只藏界面；完整 <code>chats</code> 仍上传。协议见 docs/bot-protocol.md。</p>' +
       '</section>';
 
     bindSecretField('gh-token', token);

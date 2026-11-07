@@ -5,6 +5,7 @@
   var STORAGE_ARCHIVE = 'studyhub_archive_v1';
   var STORAGE_TASKS = 'studyhub_tasks_cache_v1';
   var STORAGE_CHAT = 'studyhub_chat_v1';
+  var STORAGE_CHAT_UI = 'studyhub_chat_ui_v1';
   var STORAGE_GH_TOKEN = 'studyhub_github_token';
   var STORAGE_GH_PREFS = 'studyhub_github_prefs';
   var STORAGE_DS_KEY = 'studyhub_deepseek_key';
@@ -17,8 +18,9 @@
   var ARCHIVE_PATH = 'data/student-archive.json';
   var DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/chat/completions';
   var DEEPSEEK_MODELS = ['deepseek-chat', 'deepseek-reasoner'];
-  var APK_URL = 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk';
   var PAGES_BASE = 'https://yoreverse2423.github.io/my-agent/';
+  var APK_URL = 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk';
+  var APK_VERSION = '0.2.0';
 
   var SUBJECTS = ['综合', '数学', '英语', '物理', '化学', '语文', '地理'];
 
@@ -28,8 +30,13 @@
     archive: null,
     chat: [],
     chatSubject: '综合',
-    busy: false
+    busy: false,
+    chatUi: { clearedBeforeId: '' },
+    askTimer: null,
+    thinkingDots: null
   };
+
+  var ASK_TIMEOUT_MS = 90000;
 
   /* ---------- utils ---------- */
 
@@ -106,6 +113,19 @@
     return String(t || '').trim().replace(/^Bearer\s+/i, '');
   }
 
+  function newMsgId() {
+    return 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
+  }
+
+  function ensureMsgIds(list) {
+    var arr = Array.isArray(list) ? list : [];
+    for (var i = 0; i < arr.length; i++) {
+      if (!arr[i]) continue;
+      if (!arr[i].id) arr[i].id = newMsgId();
+    }
+    return arr;
+  }
+
   function subjectClass(subject) {
     var s = String(subject || 'default');
     if (SUBJECTS.indexOf(s) === -1 || s === '综合') return 'subj-default';
@@ -135,9 +155,14 @@
   function loadLocal() {
     state.archive = lsGet(STORAGE_ARCHIVE, null) || emptyArchive();
     state.tasksDoc = lsGet(STORAGE_TASKS, null) || emptyTasks();
-    state.chat = lsGet(STORAGE_CHAT, []) || [];
+    state.chat = ensureMsgIds(lsGet(STORAGE_CHAT, []) || []);
+    state.chatUi = lsGet(STORAGE_CHAT_UI, null) || { clearedBeforeId: '' };
     var prefs = lsGet(STORAGE_DS_PREFS, {}) || {};
     state.chatSubject = prefs.lastSubject || '综合';
+    // migrate any archive chats without ids
+    ((state.archive && state.archive.days) || []).forEach(function (d) {
+      if (d) d.chats = ensureMsgIds(d.chats || []);
+    });
   }
 
   function saveArchive() {
@@ -157,7 +182,49 @@
   }
 
   function saveChat() {
-    lsSet(STORAGE_CHAT, state.chat.slice(-80));
+    // Keep a generous local mirror; archive.days[].chats is the upload source of truth.
+    lsSet(STORAGE_CHAT, ensureMsgIds(state.chat).slice(-400));
+  }
+
+  function saveChatUi() {
+    lsSet(STORAGE_CHAT_UI, state.chatUi || { clearedBeforeId: '' });
+  }
+
+  function visibleChatMessages() {
+    var all = ensureMsgIds(state.chat || []);
+    var cut = (state.chatUi && state.chatUi.clearedBeforeId) || '';
+    if (!cut) return all.slice();
+    var idx = -1;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].id === cut) idx = i;
+    }
+    if (idx === -1) return all.slice();
+    return all.slice(idx + 1);
+  }
+
+  function appendChatMessage(msg) {
+    if (!msg.id) msg.id = newMsgId();
+    if (!msg.at) msg.at = isoShanghai();
+    state.chat.push(msg);
+    saveChat();
+    var day = ensureDay(studyDate());
+    day.chats = ensureMsgIds(day.chats || []);
+    // de-dupe by id when re-appending
+    var exists = false;
+    for (var i = 0; i < day.chats.length; i++) {
+      if (day.chats[i] && day.chats[i].id === msg.id) { exists = true; break; }
+    }
+    if (!exists) day.chats.push({
+      id: msg.id,
+      role: msg.role,
+      content: msg.content,
+      subject: msg.subject || '',
+      at: msg.at
+    });
+    // keep last ~200 per day in archive
+    if (day.chats.length > 200) day.chats = day.chats.slice(-200);
+    saveArchive();
+    return msg;
   }
 
   function ensureDay(date) {
@@ -171,6 +238,7 @@
       notes: '',
       weakTopics: [],
       chatSummary: [],
+      chats: [],
       minutesSpent: 0
     };
     days.push(day);
@@ -286,6 +354,7 @@
         notes: mergeNotes(d.notes, r.notes),
         weakTopics: mergeWeakTopics(r.weakTopics || [], d.weakTopics || []),
         chatSummary: mergeChatSummary(r.chatSummary || [], d.chatSummary || []),
+        chats: mergeChats(r.chats || [], d.chats || []),
         minutesSpent: Math.max(Number(r.minutesSpent) || 0, Number(d.minutesSpent) || 0)
       };
     });
@@ -350,6 +419,33 @@
     return out.slice(-40);
   }
 
+  function mergeChats(a, b) {
+    var map = {};
+    var order = [];
+    function put(c) {
+      if (!c) return;
+      var id = c.id || ('legacy_' + (c.at || '') + '_' + (c.role || '') + '_' + String(c.content || '').slice(0, 40));
+      if (!c.id) c = {
+        id: id,
+        role: c.role,
+        content: c.content,
+        subject: c.subject || '',
+        at: c.at || ''
+      };
+      if (!map[id]) {
+        map[id] = c;
+        order.push(id);
+      } else {
+        // prefer longer content if same id clash
+        var cur = map[id];
+        if (String(c.content || '').length > String(cur.content || '').length) map[id] = c;
+      }
+    }
+    (a || []).forEach(put);
+    (b || []).forEach(put);
+    return order.map(function (id) { return map[id]; }).slice(-300);
+  }
+
   function pullTasks() {
     var token = ghToken();
     return fetchJsonPreferRaw(TASKS_PATH, token).then(function (doc) {
@@ -360,11 +456,22 @@
     });
   }
 
+  function hydrateChatFromArchive() {
+    var collected = [];
+    ((state.archive && state.archive.days) || []).forEach(function (d) {
+      ensureMsgIds(d.chats || []).forEach(function (c) { collected.push(c); });
+    });
+    state.chat = mergeChats(state.chat || [], collected);
+    saveChat();
+  }
+
   function pullArchive() {
     var token = ghToken();
     return fetchJsonPreferRaw(ARCHIVE_PATH, token).then(function (remote) {
       state.archive = mergeArchiveDays(remote || emptyArchive(), state.archive || emptyArchive());
       saveArchive();
+      hydrateChatFromArchive();
+      // clearedBeforeId unchanged → UI 清屏状态保留，数据不丢
       return state.archive;
     });
   }
@@ -466,13 +573,21 @@
   }
 
   function browserDeepseekChat(bodyObj, key) {
+    var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var abortTimer = null;
+    if (controller) {
+      abortTimer = setTimeout(function () {
+        try { controller.abort(); } catch (e) {}
+      }, ASK_TIMEOUT_MS);
+    }
     return fetch(DEEPSEEK_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: 'Bearer ' + key
       },
-      body: JSON.stringify(bodyObj)
+      body: JSON.stringify(bodyObj),
+      signal: controller ? controller.signal : undefined
     }).then(function (response) {
       return response.text().then(function (text) {
         var data = null;
@@ -484,14 +599,21 @@
           if (response.status === 401) msg = 'DeepSeek API Key 无效';
           if (response.status === 402) msg = 'DeepSeek 余额不足';
           if (response.status === 429) msg = '请求过于频繁，稍后再试';
-          if (!response.status) msg = '无法连接 DeepSeek（网页可能被 CORS 拦截，请用手表 APK）';
+          if (!response.status) msg = '无法连接 DeepSeek（网页可能被 CORS 拦截，当前以网页浏览器实测为准）';
           throw new Error(msg);
         }
         return data;
       });
     }).catch(function (err) {
+      if (err && err.name === 'AbortError') throw new Error('等待超时（请求已中止）');
       if (err && err.message) throw err;
-      throw new Error('无法连接 DeepSeek（网页可能被 CORS 拦截，请用手表 APK）');
+      throw new Error('无法连接 DeepSeek（网页可能被 CORS 拦截，当前以网页浏览器实测为准）');
+    }).then(function (data) {
+      if (abortTimer) clearTimeout(abortTimer);
+      return data;
+    }, function (err) {
+      if (abortTimer) clearTimeout(abortTimer);
+      throw err;
     });
   }
 
@@ -548,6 +670,8 @@
     document.querySelectorAll('.tab-item').forEach(function (btn) {
       btn.classList.toggle('is-active', btn.getAttribute('data-nav') === name);
     });
+    var app = $('app');
+    if (app) app.classList.toggle('is-chat', name === 'chat');
     render();
   }
 
@@ -620,104 +744,145 @@
     }
   }
 
+  function renderRich(text) {
+    try {
+      if (window.StudyHubRender && typeof window.StudyHubRender.render === 'function') {
+        return window.StudyHubRender.render(String(text == null ? '' : text));
+      }
+    } catch (e) {}
+    return escapeHtml(text).replace(/\n/g, '<br>');
+  }
+
+  function stopThinkingAnim() {
+    if (state.thinkingDots) {
+      clearInterval(state.thinkingDots);
+      state.thinkingDots = null;
+    }
+    if (state.askTimer) {
+      clearTimeout(state.askTimer);
+      state.askTimer = null;
+    }
+  }
+
+  function setChatWaiting(on, detail) {
+    var status = $('chat-status');
+    var send = $('btn-ask');
+    if (send) send.disabled = !!on || state.busy;
+    if (!status) return;
+    if (on) {
+      status.className = 'status-line is-busy chat-waiting';
+      var base = detail || '正在思考，等待 DeepSeek 回复';
+      var n = 0;
+      status.textContent = base + '…';
+      stopThinkingAnim();
+      state.thinkingDots = setInterval(function () {
+        n = (n + 1) % 4;
+        status.textContent = base + '…'.slice(0, n) + ['', '.', '..', '...'][n];
+        // keep aria busy
+      }, 400);
+    } else {
+      stopThinkingAnim();
+    }
+  }
+
   function renderChat() {
     var root = $('view-chat');
     if (!root) return;
-    var opts = SUBJECTS.map(function (s) {
-      return '<option value="' + s + '"' + (state.chatSubject === s ? ' selected' : '') + '>' + s + '</option>';
+    var msgs = visibleChatMessages();
+    var log = msgs.map(function (m) {
+      if (m.role === 'system') {
+        return '<div class="bubble system" data-id="' + escapeAttr(m.id || '') + '">' + escapeHtml(m.content) + '</div>';
+      }
+      var cls = m.role === 'user' ? 'user' : 'assistant';
+      var body = m.role === 'assistant' ? renderRich(m.content) : escapeHtml(m.content).replace(/\n/g, '<br>');
+      return '<div class="bubble ' + cls + '" data-id="' + escapeAttr(m.id || '') + '"><div class="bubble-inner">' + body + '</div></div>';
     }).join('');
-    var log = state.chat.map(function (m) {
-      return '<div class="bubble ' + m.role + '">' + escapeHtml(m.content) + '</div>';
-    }).join('');
-    if (!log) log = '<div class="bubble system">选科目，把题干贴过来。手表 APK 走原生请求，不受网页 CORS 影响。</div>';
+    if (!log) {
+      log = '<div class="bubble system">把题干贴到底部输入框，点发送。清屏只藏界面记录，完整对话仍会进存档上传。</div>';
+    }
+    if (state.busy) {
+      log += '<div class="bubble system is-thinking" id="bubble-thinking">正在思考，等待回复<span class="dots"></span></div>';
+    }
 
     root.innerHTML =
-      '<section class="card">' +
-        '<h2 class="card-title">DeepSeek 问答</h2>' +
-        '<div class="field"><label for="chat-subject">科目</label>' +
-          '<select id="chat-subject">' + opts + '</select></div>' +
+      '<div class="chat-shell">' +
         '<div class="chat-log" id="chat-log">' + log + '</div>' +
-        '<div class="field"><label for="chat-input">问题 / 题干</label>' +
-          '<textarea id="chat-input" rows="4" placeholder="把题目贴这里…"></textarea></div>' +
-        '<div class="btn-row">' +
-          '<button type="button" class="btn" id="btn-ask">提问</button>' +
-          '<button type="button" class="btn ghost" id="btn-chat-summary">生成今日摘要</button>' +
-          '<button type="button" class="btn secondary" id="btn-chat-clear">清空本机会话</button>' +
-        '</div>' +
         '<div class="status-line" id="chat-status"></div>' +
-      '</section>';
+        '<div class="chat-composer" id="chat-composer">' +
+          '<button type="button" class="chat-clear-btn" id="btn-chat-clear" title="清屏（仅隐藏界面）" aria-label="清屏">×</button>' +
+          '<input class="chat-input" id="chat-input" type="text" enterkeyhint="send" autocomplete="off" placeholder="输入问题…">' +
+          '<button type="button" class="btn chat-send" id="btn-ask">发送</button>' +
+        '</div>' +
+      '</div>';
 
-    $('chat-subject').addEventListener('change', function () {
-      state.chatSubject = $('chat-subject').value;
-      saveDsPrefs({ lastSubject: state.chatSubject });
-    });
     $('btn-ask').addEventListener('click', onAsk);
-    $('btn-chat-clear').addEventListener('click', function () {
-      state.chat = [];
-      saveChat();
-      renderChat();
-    });
-    $('btn-chat-summary').addEventListener('click', onChatSummary);
+    $('btn-chat-clear').addEventListener('click', onClearChatUi);
+    var input = $('chat-input');
+    if (input) {
+      input.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' && !ev.shiftKey) {
+          ev.preventDefault();
+          onAsk();
+        }
+      });
+    }
+    if (state.busy) {
+      setChatWaiting(true, '正在思考，等待 DeepSeek 回复');
+      if ($('btn-ask')) $('btn-ask').disabled = true;
+    }
     var logEl = $('chat-log');
     if (logEl) logEl.scrollTop = logEl.scrollHeight;
   }
 
+  function onClearChatUi() {
+    var all = ensureMsgIds(state.chat || []);
+    var last = all.length ? all[all.length - 1] : null;
+    state.chatUi = { clearedBeforeId: last ? last.id : '' };
+    // If empty history, mark a synthetic barrier so refresh stays clear until new msgs
+    if (!last) state.chatUi.clearedBeforeId = 'cleared_empty_' + Date.now().toString(36);
+    saveChatUi();
+    toast('已清屏（完整对话仍保留，上传不受影响）');
+    renderChat();
+  }
+
   function onAsk() {
-    var q = (($('chat-input') && $('chat-input').value) || '').trim();
+    var input = $('chat-input');
+    var q = ((input && input.value) || '').trim();
     if (!q) { toast('先写问题'); return; }
     if (state.busy) return;
     state.busy = true;
-    setStatus('chat-status', 'busy', hasNativeDeepseek() ? '原生层请求中…' : '请求 DeepSeek…');
-    state.chat.push({ role: 'user', content: q, subject: state.chatSubject, at: isoShanghai() });
-    saveChat();
+    if (input) input.value = '';
+    appendChatMessage({ role: 'user', content: q, subject: state.chatSubject || '综合' });
     renderChat();
-    $('chat-input') && ($('chat-input').value = '');
-    askDeepseek(q, state.chatSubject).then(function (ans) {
-      state.chat.push({ role: 'assistant', content: ans, subject: state.chatSubject, at: isoShanghai() });
-      saveChat();
-      // also stash a brief into today's chatSummary buffer (full flush via button)
-      var day = ensureDay(studyDate());
-      day.chatSummary = day.chatSummary || [];
-      day.chatSummary.push({
-        subject: state.chatSubject,
-        q: q.slice(0, 120),
-        aBrief: briefAnswer(ans),
-        at: isoShanghai()
-      });
-      saveArchive();
+    setChatWaiting(true, '正在思考，等待 DeepSeek 回复');
+    if ($('btn-ask')) $('btn-ask').disabled = true;
+
+    var finished = false;
+    function finishOk(ans) {
+      if (finished) return;
+      finished = true;
+      stopThinkingAnim();
+      appendChatMessage({ role: 'assistant', content: ans, subject: state.chatSubject || '综合' });
       state.busy = false;
       renderChat();
       setStatus('chat-status', 'ok', '已回答');
-    }).catch(function (err) {
+    }
+    function finishErr(err) {
+      if (finished) return;
+      finished = true;
+      stopThinkingAnim();
       state.busy = false;
       renderChat();
-      setStatus('chat-status', 'err', err.message || String(err));
-      toast(err.message || '提问失败');
-    });
-  }
-
-  function onChatSummary() {
-    var day = ensureDay(studyDate());
-    var recent = state.chat.filter(function (m) { return m.role === 'user' || m.role === 'assistant'; }).slice(-12);
-    if (!recent.length) { toast('还没有会话'); return; }
-    // Rebuild summary from recent pairs
-    var pairs = [];
-    for (var i = 0; i < recent.length; i++) {
-      if (recent[i].role === 'user') {
-        var a = recent[i + 1] && recent[i + 1].role === 'assistant' ? recent[i + 1].content : '';
-        pairs.push({
-          subject: recent[i].subject || state.chatSubject,
-          q: String(recent[i].content).slice(0, 120),
-          aBrief: briefAnswer(a),
-          at: recent[i].at || isoShanghai()
-        });
-      }
+      var msg = (err && err.message) ? err.message : String(err || '请求失败');
+      setStatus('chat-status', 'err', msg);
+      toast(msg);
     }
-    day.chatSummary = mergeChatSummary(day.chatSummary || [], pairs);
-    // weakTopics heuristic: if notes mention 不会/薄弱
-    saveArchive();
-    toast('已写入今日存档摘要（记得上传）');
-    setView('archive');
+
+    state.askTimer = setTimeout(function () {
+      finishErr(new Error('等待超时（' + Math.round(ASK_TIMEOUT_MS / 1000) + 's），请检查网络或稍后重试'));
+    }, ASK_TIMEOUT_MS);
+
+    askDeepseek(q, state.chatSubject || '综合').then(finishOk).catch(finishErr);
   }
 
   function renderArchive() {
@@ -734,9 +899,18 @@
       var weak = (d.weakTopics || []).map(function (w) {
         return '<span class="tag">' + escapeHtml((w.subject || '') + '·' + (w.topic || '')) + '</span>';
       }).join('');
-      var chats = (d.chatSummary || []).slice(-3).map(function (c) {
-        return '<div class="muted">Q: ' + escapeHtml(c.q || '') + '<br>A: ' + escapeHtml(c.aBrief || '') + '</div>';
+      var full = (d.chats || []);
+      var chats = full.slice(-4).map(function (c) {
+        var who = c.role === 'user' ? '我' : (c.role === 'assistant' ? 'DS' : c.role);
+        return '<div class="muted">[' + escapeHtml(who) + '] ' + escapeHtml(String(c.content || '').slice(0, 80)) + '</div>';
       }).join('');
+      if (full.length) {
+        chats = '<div class="muted">完整对话 ' + full.length + ' 条（清屏不删）</div>' + chats;
+      } else {
+        chats = (d.chatSummary || []).slice(-3).map(function (c) {
+          return '<div class="muted">Q: ' + escapeHtml(c.q || '') + '<br>A: ' + escapeHtml(c.aBrief || '') + '</div>';
+        }).join('');
+      }
       return '<div class="archive-day card">' +
         '<h3>' + escapeHtml(d.date) + '</h3>' +
         '<div class="taglist">' + tags + weak + '</div>' +
@@ -748,7 +922,7 @@
     root.innerHTML =
       '<section class="card">' +
         '<h2 class="card-title">存档同步</h2>' +
-        '<p class="muted">任务只下载；学习存档可上传。冲突时先拉取远程按日期合并：完成项/摘要取并集，备注两侧保留，分钟取较大值。</p>' +
+        '<p class="muted">任务只下载；学习存档可上传。冲突时先拉取远程按日期合并：完成项取并集，chats 按 id 去重合并，备注两侧保留，分钟取较大值。清屏只影响界面，不删 chats。</p>' +
         '<div class="btn-row">' +
           '<button type="button" class="btn" id="btn-pull-tasks">拉取任务</button>' +
           '<button type="button" class="btn ghost" id="btn-pull-archive">拉取存档</button>' +
@@ -788,6 +962,82 @@
     });
   }
 
+  function secretFieldHtml(id, placeholder) {
+    var eyeSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+    return '<div class="secret-field">' +
+      '<input id="' + id + '" class="secret-input" type="password" autocomplete="off" spellcheck="false" placeholder="' + escapeAttr(placeholder) + '">' +
+      '<button type="button" class="secret-btn" data-secret-eye="' + id + '" title="显示密码" aria-label="显示密码" aria-pressed="false">' + eyeSvg + '</button>' +
+      '<button type="button" class="secret-btn" data-secret-copy="' + id + '" title="复制" aria-label="复制">复制</button>' +
+    '</div>';
+  }
+
+  function bindSecretField(inputId, savedValue) {
+    var input = $(inputId);
+    if (!input) return;
+    var eye = document.querySelector('[data-secret-eye="' + inputId + '"]');
+    var copy = document.querySelector('[data-secret-copy="' + inputId + '"]');
+
+    var eyeOpenSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+    var eyeOffSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
+
+    function setVisible(visible) {
+      input.type = visible ? 'text' : 'password';
+      if (eye) {
+        var label = visible ? '隐藏密码' : '显示密码';
+        eye.setAttribute('title', label);
+        eye.setAttribute('aria-label', label);
+        eye.setAttribute('aria-pressed', visible ? 'true' : 'false');
+        eye.innerHTML = visible ? eyeOffSvg : eyeOpenSvg;
+      }
+    }
+
+    if (eye) {
+      eye.addEventListener('click', function (ev) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      if (ev && ev.preventDefault) ev.preventDefault();
+        setVisible(input.type === 'password');
+      });
+    }
+
+    if (copy) {
+      copy.addEventListener('click', function (ev) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      if (ev && ev.preventDefault) ev.preventDefault();
+        var val = normalizeToken(input.value);
+        if (!val) val = normalizeToken(savedValue || '');
+        if (!val) {
+          if (typeof toast === 'function') toast('没有可复制的内容');
+          return;
+        }
+        function ok() {
+          if (typeof toast === 'function') toast('已复制到剪贴板');
+        }
+        function fail(err) {
+          var msg = (err && err.message) ? err.message : '剪贴板不可用';
+          if (typeof toast === 'function') toast('复制失败：' + msg);
+        }
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(val).then(ok).catch(fail);
+          } else {
+            var ta = document.createElement('textarea');
+            ta.value = val;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              if (document.execCommand('copy')) ok();
+              else fail(new Error('execCommand 复制失败'));
+            } catch (e) { fail(e); }
+            document.body.removeChild(ta);
+          }
+        } catch (e) { fail(e); }
+      });
+    }
+  }
+
   function renderSettings() {
     var root = $('view-settings');
     if (!root) return;
@@ -806,8 +1056,8 @@
         '<div class="field"><label>Owner</label><input id="gh-owner" value="' + escapeAttr(prefs.owner) + '"></div>' +
         '<div class="field"><label>Repo</label><input id="gh-repo" value="' + escapeAttr(prefs.repo) + '"></div>' +
         '<div class="field"><label>Personal Access Token</label>' +
-          '<input id="gh-token" type="password" autocomplete="off" placeholder="' +
-          (token ? '已保存（输入新值可覆盖）' : 'github_pat_…') + '"></div>' +
+          secretFieldHtml('gh-token', token ? '已保存（输入新值可覆盖）' : 'github_pat_…') +
+        '</div>' +
         '<div class="btn-row">' +
           '<button type="button" class="btn" id="btn-save-gh">保存</button>' +
           '<button type="button" class="btn danger" id="btn-clear-gh">清除 Token</button>' +
@@ -817,14 +1067,14 @@
 
       '<section class="card">' +
         '<h2 class="card-title">DeepSeek</h2>' +
-        '<p class="muted">Key 只存本机。网页若遇 CORS 请用手表 APK（原生层请求）。</p>' +
+        '<p class="muted">Key 只存本机。问答页发送后会显示「正在思考」等待状态。</p>' +
         '<ol class="settings-list">' +
           '<li>打开 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer">platform.deepseek.com/api_keys</a> 创建密钥。</li>' +
-          '<li>粘贴到下方保存。问答页用法和普通 agent 类似：贴题 → 提问。</li>' +
+          '<li>粘贴到下方保存。点「复制 / 小眼睛」由你手动触发，不会自动复制。</li>' +
         '</ol>' +
         '<div class="field"><label>API Key</label>' +
-          '<input id="ds-key" type="password" autocomplete="off" placeholder="' +
-          (key ? '已保存（输入新值可覆盖）' : 'sk-…') + '"></div>' +
+          secretFieldHtml('ds-key', key ? '已保存（输入新值可覆盖）' : 'sk-…') +
+        '</div>' +
         '<div class="field"><label>模型</label><select id="ds-model">' + modelOpts + '</select></div>' +
         '<div class="btn-row">' +
           '<button type="button" class="btn" id="btn-save-ds">保存</button>' +
@@ -837,23 +1087,26 @@
 
       '<section class="card">' +
         '<h2 class="card-title">ColorOS 手表 APK</h2>' +
-        '<p class="muted">armeabi-v7a · WebView 壳 · 已去焦点黄框 · DeepSeek 走原生请求。</p>' +
+        '<p class="muted">版本 <strong>0.2.0</strong>（armeabi-v7a · 离线 WebView · 原生 DeepSeek · 去黄框）。</p>' +
         '<div class="btn-row">' +
-          '<a class="btn" href="' + APK_URL + '" download>下载手表 APK</a>' +
-          '<a class="btn secondary" href="' + PAGES_BASE + APK_URL + '" target="_blank" rel="noopener noreferrer">Pages 链接</a>' +
+          '<a class="btn" href="downloads/xiaoxuexiji-watch-armeabi-v7a.apk" download>下载手表 APK</a>' +
+          '<a class="btn secondary" href="' + PAGES_BASE + 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk" target="_blank" rel="noopener noreferrer">Pages 直链</a>' +
         '</div>' +
-        '<p class="muted" style="margin-top:10px">型号：OPPO / ColorOS Watch（非 Wear OS）。用电脑 ADB 安装：<code>adb install -r xiaoxuexiji-watch-armeabi-v7a.apk</code></p>' +
+        '<p class="muted" style="margin-top:10px">电脑安装：<code>adb install -r xiaoxuexiji-watch-armeabi-v7a.apk</code>。校验见同目录 <code>.sha256</code>。</p>' +
       '</section>' +
 
       '<section class="card">' +
         '<h2 class="card-title">关于</h2>' +
-        '<p class="muted">小学习机 StudyHub v0.1.0 · 默认仓库 <code>yoreverse2423/my-agent</code> · 与监工头bot / 科目 bot 通过仓库 JSON 协作。协议见 docs/bot-protocol.md。</p>' +
+        '<p class="muted">小学习机 StudyHub v0.2.0 · 默认仓库 <code>yoreverse2423/my-agent</code>。问答清屏只藏界面；完整 <code>chats</code> 仍上传。协议见 docs/bot-protocol.md。</p>' +
       '</section>';
+
+    bindSecretField('gh-token', token);
+    bindSecretField('ds-key', key);
 
     $('btn-save-gh').addEventListener('click', function () {
       saveGhPrefs($('gh-owner').value, $('gh-repo').value);
-      var t = normalizeToken($('gh-token').value);
-      if (t) lsSetStr(STORAGE_GH_TOKEN, t);
+      var tkn = normalizeToken($('gh-token').value);
+      if (tkn) lsSetStr(STORAGE_GH_TOKEN, tkn);
       toast('GitHub 设置已保存');
       renderSettings();
     });

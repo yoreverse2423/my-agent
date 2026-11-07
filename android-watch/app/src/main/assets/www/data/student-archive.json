@@ -1,6 +1,30 @@
 {
   "schemaVersion": 1,
   "timezone": "Asia/Shanghai",
-  "updatedAt": "2026-11-08T08:00:00+08:00",
-  "days": []
+  "updatedAt": "2026-11-08T05:40:00+08:00",
+  "days": [
+    {
+      "date": "2026-11-08",
+      "completedTaskIds": [
+        "demo-math-2026-11-08-1"
+      ],
+      "notes": "【演示验证】箱上 Contents API 合并上传自测，非真实学习记录",
+      "weakTopics": [
+        {
+          "subject": "数学",
+          "topic": "演示薄弱点",
+          "detail": "verify-only"
+        }
+      ],
+      "chatSummary": [
+        {
+          "subject": "数学",
+          "q": "演示问",
+          "aBrief": "演示答",
+          "at": "2026-11-08T05:40:00+08:00"
+        }
+      ],
+      "minutesSpent": 1
+    }
+  ]
 }

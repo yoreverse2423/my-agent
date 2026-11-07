@@ -93,11 +93,13 @@ select:focus-visible, [tabindex]:focus-visible, [role="button"]:focus-visible,
 }
 
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.brand-mark {
+img.brand-mark, .brand-mark {
   width: 40px; height: 40px; border-radius: 12px;
-  display: grid; place-items: center;
-  background: var(--primary); color: #fffdf8; font-weight: 700; font-size: 18px;
+  display: block;
+  object-fit: cover;
+  background: var(--primary);
   box-shadow: var(--shadow);
+  flex-shrink: 0;
 }
 .brand-title { margin: 0; font-size: 18px; line-height: 1.2; }
 .brand-sub { margin: 2px 0 0; font-size: 12px; color: var(--muted); }

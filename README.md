@@ -17,7 +17,10 @@
 
 ## 手表 APK
 
-网页版验证通过后再提供下载与安装说明。当前请先用 Pages 网页验证任务同步与问答。
+- 下载：[downloads/xiaoxuexiji-watch-armeabi-v7a.apk](downloads/xiaoxuexiji-watch-armeabi-v7a.apk)（versionName **0.2.0**，armeabi-v7a）
+- 校验：同目录 `.sha256`
+- 安装：`adb install -r xiaoxuexiji-watch-armeabi-v7a.apk`
+- 内置最新网页资源；DeepSeek 走原生桥；设置里填 Token/Key（只存手表本地）
 
 
 ## Bot 协作
