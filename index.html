@@ -7,11 +7,12 @@
   <meta name="description" content="小学习机：今日任务、DeepSeek 问答、GitHub 存档同步。">
   <title>小学习机 · StudyHub</title>
   <link rel="manifest" href="site.webmanifest">
+  <link rel="stylesheet" href="vendor/katex/katex.min.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="app" id="app">
-    <header class="topbar">
+    <header class="topbar" id="topbar">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true">学</span>
         <div>
@@ -24,7 +25,7 @@
 
     <main class="app-main" id="app-main">
       <section class="view" id="view-today" data-view="today"></section>
-      <section class="view" id="view-chat" data-view="chat" hidden></section>
+      <section class="view view-chat" id="view-chat" data-view="chat" hidden></section>
       <section class="view" id="view-archive" data-view="archive" hidden></section>
       <section class="view" id="view-settings" data-view="settings" hidden></section>
     </main>
@@ -51,6 +52,8 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <noscript><div class="noscript">请启用 JavaScript 后使用小学习机。</div></noscript>
+  <script src="vendor/katex/katex.min.js"></script>
+  <script src="vendor/studyhub-render.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -12,8 +12,8 @@
 2. **设置 → GitHub**：填 Owner `yoreverse2423`、Repo `my-agent`，粘贴有 **Contents 读写** 的 PAT，保存。
 3. **设置 → DeepSeek**：到 [API Keys](https://platform.deepseek.com/api_keys) 创建密钥，粘贴保存（只存本机，不进仓库）。
 4. 点右上角 **同步** 或「存档 → 拉取任务」，在 **今日** 勾完成、写备注。
-5. **问答**：选题科 → 贴题干 → 提问。请在真实浏览器里确认 DeepSeek 是否被 CORS 拦截。
-6. 「生成今日摘要」后到 **存档 → 上传存档**，主 bot 即可读取 `data/student-archive.json`。
+5. **问答**：底部单行输入 → 发送。发送后会显示「正在思考」等待状态。请在真实浏览器里确认 DeepSeek 是否被 CORS 拦截；公式/Markdown 由本地 KaTeX 渲染。
+6. 到 **存档 → 上传存档**。问答「清屏」只藏界面；完整对话在 `days[].chats`，主 bot 自行分析。
 
 ## 手表 APK
 

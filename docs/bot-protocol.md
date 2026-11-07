@@ -81,6 +81,20 @@ Pages：`https://yoreverse2423.github.io/my-agent/`
 
 Bot **不要和学生抢写**：读完分析即可。上传冲突策略在学生端：先 GET 远程，按 `date` 合并后再 PUT——`completedTaskIds` 取并集；`chatSummary` 按 `(at|q)` 去重合并；`weakTopics` 合并去重；`notes` 两侧都有且不同时按 `本地 + "\n---\n" + 远程` 拼接（本地在前）；`minutesSpent` 取较大值。PUT 遇 409 会重新 GET 合并再试，最多 2 次，不盲覆盖。保留约 30 天。
 
+### `days[].chats`（完整问答，推荐）
+
+学生端把每条问答以稳定 `id` 写入 `chats`（例如 `m_xxx`）。**清屏只隐藏界面**，不删本地/远程 `chats`，刷新后仍按「清屏游标」隐藏已看过的气泡，但上传仍带全部原始对话，供监工头bot 自行分析。不要依赖用户点「生成摘要」。
+
+```json
+"chats": [
+  {"id":"m_abc","role":"user","content":"导数几何意义？","subject":"数学","at":"2026-11-08T19:10:00+08:00"},
+  {"id":"m_def","role":"assistant","content":"...","subject":"数学","at":"2026-11-08T19:10:05+08:00"}
+]
+```
+
+合并规则：按 `id` 去重并集；无 `id` 的旧条目用 `legacy_<at>_<role>_<content前缀>` 兜底。`chatSummary` 仍兼容旧数据，新客户端以 `chats` 为准。
+
+
 ### 监工头bot 读存档后建议流程
 
 1. 看今日 `completedTaskIds` vs `daily-tasks` 里 active 任务 → 完成率。
