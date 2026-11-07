@@ -1,4 +1,4 @@
-# 小学习机 · ColorOS 手表包
+# Yore's agent · ColorOS 手表包
 
 - `applicationId`: `com.xiaoxuexiji.watch`
 - `versionName`: `0.1.0`

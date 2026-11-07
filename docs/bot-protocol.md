@@ -1,6 +1,6 @@
-# 小学习机 · Bot 协议（v0.1）
+# Yore's agent · Bot 协议（v0.1）
 
-给学生端（网页 / 手表 APK）看的任务与存档镜像。完整备考约定仍以 `/workspace/gaokao/protocol.md` 为准；`gaokao/daily/` 可继续保留，StudyHub 是**学生可读的 JSON 镜像**。
+给学生端（网页 / 手表 APK）看的任务与存档镜像。完整备考约定仍以 `/workspace/gaokao/protocol.md` 为准；`gaokao/daily/` 可继续保留，Yore's agent 仓库是**学生可读的 JSON 镜像**。
 
 仓库：`yoreverse2423/my-agent`  
 Pages：`https://yoreverse2423.github.io/my-agent/`

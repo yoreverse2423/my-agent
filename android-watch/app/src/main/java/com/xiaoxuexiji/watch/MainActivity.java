@@ -42,7 +42,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * WebView shell for 小学习机. Ships offline www assets; GitHub sync and
+ * WebView shell for Yore's agent. Ships offline www assets; GitHub sync and
  * DeepSeek chat need network. DeepSeek goes through a JavascriptInterface
  * + HttpURLConnection path so ColorOS WebView CORS cannot block it.
  */
@@ -203,7 +203,7 @@ public class MainActivity extends Activity {
         }
 
         String code = error == null ? "" : error.getClass().getSimpleName();
-        String message = "小学习机未能启动\n\n"
+        String message = "Yore's agent 未能启动\n\n"
                 + "手表 WebView 初始化或页面加载失败。\n"
                 + "请重启手表后再打开本应用。\n"
                 + "若仍然失败，请卸载后重新安装。";
@@ -259,7 +259,7 @@ public class MainActivity extends Activity {
             if (path.contains("/android_asset/")) {
                 return false;
             }
-            showToast("小学习机仅加载应用内页面");
+            showToast("Yore's agent 仅加载应用内页面");
             return true;
         }
 
@@ -273,7 +273,7 @@ public class MainActivity extends Activity {
         // Block navigating the shell to arbitrary sites while StudyHubNative is injected.
         // XHR/fetch to GitHub/DeepSeek still works from local JS.
         if ("http".equals(scheme) || "https".equals(scheme)) {
-            showToast("小学习机仅使用本地页面；网络请求由应用内接口完成");
+            showToast("Yore's agent 仅使用本地页面；网络请求由应用内接口完成");
             return true;
         }
 

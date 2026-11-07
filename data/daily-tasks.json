@@ -37,6 +37,28 @@
       "slot": "晚自习",
       "status": "active",
       "priority": 3
+    },
+    {
+      "id": "demo-math-2026-11-07-1",
+      "date": "2026-11-07",
+      "subject": "数学",
+      "from": "系统演示",
+      "title": "【演示】昨天：三角函数复习",
+      "body": "【演示，不是真实作业】用于「任务」页按日期浏览历史。",
+      "slot": "晚自习",
+      "status": "active",
+      "priority": 1
+    },
+    {
+      "id": "demo-eng-2026-11-06-1",
+      "date": "2026-11-06",
+      "subject": "英语",
+      "from": "系统演示",
+      "title": "【演示】前天：阅读理解一篇",
+      "body": "【演示，不是真实作业】历史任务仅展示科目/标题/正文/完成状态。",
+      "slot": "午间",
+      "status": "active",
+      "priority": 2
     }
   ]
 }

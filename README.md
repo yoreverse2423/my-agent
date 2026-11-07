@@ -1,4 +1,4 @@
-# 小学习机 StudyHub
+# Yore's agent
 
 网页 + ColorOS 手表 APK：看监工头bot / 科目 bot 下发的**今日任务**，用 **DeepSeek** 问题目，把学习存档同步回 GitHub，方便主 bot 分析薄弱点并调整计划。
 
@@ -17,7 +17,7 @@
 
 ## 手表 APK
 
-- 下载：[downloads/xiaoxuexiji-watch-armeabi-v7a.apk](downloads/xiaoxuexiji-watch-armeabi-v7a.apk)（versionName **0.2.1**，armeabi-v7a）
+- 下载：[downloads/xiaoxuexiji-watch-armeabi-v7a.apk](downloads/xiaoxuexiji-watch-armeabi-v7a.apk)（versionName **0.2.2**，armeabi-v7a）
 - 校验：同目录 `.sha256`
 - 安装：`adb install -r xiaoxuexiji-watch-armeabi-v7a.apk`
 - 内置最新网页资源；DeepSeek 走原生桥；设置里填 Token/Key（只存手表本地）

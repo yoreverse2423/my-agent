@@ -1,6 +1,6 @@
 {
-  "name": "小学习机",
-  "short_name": "小学习机",
+  "name": "Yore's agent",
+  "short_name": "Yore's agent",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f4f1e8",

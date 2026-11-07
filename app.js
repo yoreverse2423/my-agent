@@ -1,4 +1,4 @@
-/* 小学习机 StudyHub — 今日任务 / DeepSeek 问答 / GitHub 存档同步 */
+/* Yore's agent — 今日任务 / DeepSeek 问答 / GitHub 存档同步 */
 (function () {
   'use strict';
 
@@ -11,6 +11,7 @@
   var STORAGE_DS_KEY = 'studyhub_deepseek_key';
   var STORAGE_DS_PREFS = 'studyhub_deepseek_prefs';
   var STORAGE_NOTES = 'studyhub_day_notes_v1';
+  var STORAGE_SYNC_PREFS = 'studyhub_sync_prefs_v1';
 
   var DEFAULT_OWNER = 'yoreverse2423';
   var DEFAULT_REPO = 'my-agent';
@@ -20,7 +21,10 @@
   var DEEPSEEK_MODELS = ['deepseek-chat', 'deepseek-reasoner'];
   var PAGES_BASE = 'https://yoreverse2423.github.io/my-agent/';
   var APK_URL = 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk';
-  var APK_VERSION = '0.2.1';
+  var APK_VERSION = '0.2.2';
+  var AUTO_UPLOAD_GAP_MS = 5 * 60 * 1000;
+  var AUTO_UPLOAD_TICK_MS = 20 * 1000;
+  var BRAND_NAME = "Yore's agent";
 
   var SUBJECTS = ['综合', '数学', '英语', '物理', '化学', '语文', '地理'];
 
@@ -33,7 +37,11 @@
     busy: false,
     chatUi: { clearedBeforeId: '' },
     askTimer: null,
-    thinkingDots: null
+    thinkingDots: null,
+    tasksBrowseDate: '',
+    archiveDirty: false,
+    pushInFlight: false,
+    autoUploadTimer: null
   };
 
   var ASK_TIMEOUT_MS = 90000;
@@ -177,6 +185,70 @@
     lsSet(STORAGE_ARCHIVE, state.archive);
   }
 
+  function markArchiveDirty() {
+    state.archiveDirty = true;
+  }
+
+  function syncPrefs() {
+    var p = lsGet(STORAGE_SYNC_PREFS, null) || {};
+    return {
+      autoUpload: Boolean(p.autoUpload),
+      lastAutoUploadAt: Number(p.lastAutoUploadAt) > 0 ? Number(p.lastAutoUploadAt) : 0,
+      lastUploadAt: Number(p.lastUploadAt) > 0 ? Number(p.lastUploadAt) : 0,
+      lastUploadOk: Boolean(p.lastUploadOk),
+      lastUploadError: p.lastUploadError ? String(p.lastUploadError) : ''
+    };
+  }
+
+  function saveSyncPrefs(patch) {
+    var cur = syncPrefs();
+    Object.keys(patch || {}).forEach(function (k) { cur[k] = patch[k]; });
+    lsSet(STORAGE_SYNC_PREFS, cur);
+    return cur;
+  }
+
+  function archiveHasLearningContent() {
+    var days = (state.archive && state.archive.days) || [];
+    for (var i = 0; i < days.length; i++) {
+      var d = days[i] || {};
+      if ((d.completedTaskIds || []).length) return true;
+      if ((d.chats || []).length) return true;
+      if (String(d.notes || '').trim()) return true;
+      if (Number(d.minutesSpent) > 0) return true;
+      if ((d.weakTopics || []).length) return true;
+      if ((d.chatSummary || []).length) return true;
+    }
+    return false;
+  }
+
+  function formatSyncTime(ts) {
+    if (!ts) return '尚无';
+    try {
+      var d = new Date(ts);
+      var x = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+      var m = String(x.getMonth() + 1).padStart(2, '0');
+      var day = String(x.getDate()).padStart(2, '0');
+      var h = String(x.getHours()).padStart(2, '0');
+      var mi = String(x.getMinutes()).padStart(2, '0');
+      return m + '-' + day + ' ' + h + ':' + mi;
+    } catch (e) {
+      return '尚无';
+    }
+  }
+
+  function syncStatusText() {
+    var p = syncPrefs();
+    if (state.pushInFlight) return '正在上传…';
+    if (p.lastUploadAt) {
+      return (p.lastUploadOk ? '最近上传成功 ' : '最近上传失败 ') + formatSyncTime(p.lastUploadAt) +
+        (p.lastUploadOk ? '' : (p.lastUploadError ? '：' + p.lastUploadError : '')) +
+        (state.archiveDirty ? ' · 有未上传改动' : '');
+    }
+    if (state.archiveDirty) return '有未上传的学习改动';
+    if (p.autoUpload) return '已开启每 5 分钟自动上传（仅本页打开时）';
+    return '自动上传已关闭';
+  }
+
   function saveTasksCache() {
     lsSet(STORAGE_TASKS, state.tasksDoc);
   }
@@ -224,6 +296,7 @@
     // keep last ~200 per day in archive
     if (day.chats.length > 200) day.chats = day.chats.slice(-200);
     saveArchive();
+    markArchiveDirty();
     return msg;
   }
 
@@ -446,14 +519,57 @@
     return order.map(function (id) { return map[id]; }).slice(-300);
   }
 
+  function mergeTasksDoc(incoming) {
+    var map = {};
+    var order = [];
+    function put(t) {
+      if (!t || !t.id) return;
+      var id = String(t.id);
+      if (!map[id]) order.push(id);
+      map[id] = t;
+    }
+    (((state.tasksDoc && state.tasksDoc.tasks) || [])).forEach(put);
+    ((incoming && incoming.tasks) || []).forEach(put);
+    var base = incoming && typeof incoming === 'object' ? incoming : emptyTasks();
+    var out = {
+      schemaVersion: base.schemaVersion || 1,
+      timezone: base.timezone || 'Asia/Shanghai',
+      updatedAt: base.updatedAt || isoShanghai(),
+      demo: base.demo,
+      demoNote: base.demoNote,
+      tasks: order.map(function (id) { return map[id]; })
+    };
+    // drop cancelled-only noise older than 60 days is unnecessary; keep all cached ids
+    return out;
+  }
+
   function pullTasks() {
     var token = ghToken();
     return fetchJsonPreferRaw(TASKS_PATH, token).then(function (doc) {
       if (!doc || !Array.isArray(doc.tasks)) throw new Error('daily-tasks.json 格式不对');
-      state.tasksDoc = doc;
+      state.tasksDoc = mergeTasksDoc(doc);
       saveTasksCache();
-      return doc;
+      return state.tasksDoc;
     });
+  }
+
+  function tasksForDate(date) {
+    var all = (state.tasksDoc && state.tasksDoc.tasks) || [];
+    return all.filter(function (t) {
+      return t && t.date === date && (t.status || 'active') !== 'cancelled';
+    }).sort(function (a, b) {
+      return (a.priority || 99) - (b.priority || 99);
+    });
+  }
+
+  function taskDateList() {
+    var set = {};
+    ((state.tasksDoc && state.tasksDoc.tasks) || []).forEach(function (t) {
+      if (t && t.date) set[t.date] = 1;
+    });
+    var today = studyDate();
+    set[today] = 1;
+    return Object.keys(set).sort(function (a, b) { return String(b).localeCompare(String(a)); });
   }
 
   function hydrateChatFromArchive() {
@@ -476,10 +592,15 @@
     });
   }
 
-  function pushArchive(attempt) {
+  function pushArchive(attempt, opts) {
     attempt = attempt || 0;
+    opts = opts || {};
     var token = ghToken();
     if (!token) return Promise.reject(new Error('请先在设置里保存 GitHub Token'));
+    if (attempt === 0) {
+      if (state.pushInFlight) return Promise.reject(new Error('正在上传，请稍候'));
+      state.pushInFlight = true;
+    }
     // Always GET remote → merge → PUT; never blind-overwrite another device's changes.
     return githubContents('GET', ARCHIVE_PATH, token).then(function (got) {
       var sha = '';
@@ -501,15 +622,65 @@
       };
       if (sha) body.sha = sha;
       return githubContents('PUT', ARCHIVE_PATH, token, body).then(function (put) {
-        if (put.ok) return merged;
+        if (put.ok) {
+          state.archiveDirty = false;
+          var now = Date.now();
+          var patch = { lastUploadAt: now, lastUploadOk: true, lastUploadError: '' };
+          if (opts.auto) patch.lastAutoUploadAt = now;
+          saveSyncPrefs(patch);
+          return merged;
+        }
         if (put.status === 409) {
           // remote moved under us: re-GET + re-merge, retry at most twice
-          if (attempt < 2) return pushArchive(attempt + 1);
+          if (attempt < 2) return pushArchive(attempt + 1, opts);
           throw new Error('上传冲突：合并重试 2 次后仍失败（HTTP 409）');
         }
         throw new Error('上传失败 HTTP ' + put.status + (put.data && put.data.message ? '：' + put.data.message : ''));
       });
+    }).then(function (res) {
+      state.pushInFlight = false;
+      return res;
+    }, function (err) {
+      state.pushInFlight = false;
+      saveSyncPrefs({
+        lastUploadAt: Date.now(),
+        lastUploadOk: false,
+        lastUploadError: (err && err.message) ? String(err.message).slice(0, 120) : '上传失败'
+      });
+      throw err;
     });
+  }
+
+  function maybeAutoUpload() {
+    var prefs = syncPrefs();
+    if (!prefs.autoUpload) return;
+    if (!ghToken()) return;
+    if (!state.archiveDirty) return;
+    if (state.pushInFlight) return;
+    if (!archiveHasLearningContent()) return; // 首次开启空白不覆盖
+    if (prefs.lastAutoUploadAt && (Date.now() - prefs.lastAutoUploadAt) < AUTO_UPLOAD_GAP_MS) return;
+    saveSyncPrefs({ lastAutoUploadAt: Date.now() }); // 占位防并发重复触发；成功/失败再更新
+    pushArchive(0, { auto: true }).then(function () {
+      refreshSyncStatusUi();
+    }).catch(function () {
+      // dirty 保留，下次再试；不刷屏
+      refreshSyncStatusUi();
+    });
+  }
+
+  function startAutoUploadLoop() {
+    if (state.autoUploadTimer) return;
+    state.autoUploadTimer = setInterval(function () {
+      try { maybeAutoUpload(); } catch (e) {}
+    }, AUTO_UPLOAD_TICK_MS);
+  }
+
+  function refreshSyncStatusUi() {
+    var el = $('sync-backup-status');
+    if (!el) return;
+    var prefs = syncPrefs();
+    var kind = state.pushInFlight ? 'busy' : (prefs.lastUploadAt ? (prefs.lastUploadOk ? 'ok' : 'err') : '');
+    setStatus('sync-backup-status', kind, syncStatusText());
   }
 
   /* ---------- DeepSeek ---------- */
@@ -692,7 +863,7 @@
     html += '<section class="card"><h2 class="card-title">今日任务</h2>';
     html += '<p class="muted">学习日 ' + date + '（凌晨 4:00 换日）· 共 ' + tasks.length + ' 项</p>';
     if (!tasks.length) {
-      html += '<div class="empty">还没有任务。点右上角「同步」或到「存档」拉取 GitHub 任务。</div>';
+      html += '<div class="empty">还没有任务。点右上角「同步」或到「任务」页查看；设置里可拉取 GitHub 任务。</div>';
     } else {
       tasks.forEach(function (t) {
         var done = (day.completedTaskIds || []).indexOf(t.id) !== -1;
@@ -729,6 +900,7 @@
         if (box.checked) set[id] = 1; else delete set[id];
         d.completedTaskIds = Object.keys(set);
         saveArchive();
+        markArchiveDirty();
         renderToday();
         toast(box.checked ? '已勾完成' : '已取消完成');
       });
@@ -739,6 +911,7 @@
         var d = ensureDay(studyDate());
         d.notes = ($('day-notes') && $('day-notes').value) || '';
         saveArchive();
+        markArchiveDirty();
         toast('备注已保存到本地存档');
       });
     }
@@ -886,78 +1059,76 @@
   }
 
   function renderArchive() {
+    // 「任务」页：按日期浏览缓存的 daily-tasks（原 archive tab）
     var root = $('view-archive');
     if (!root) return;
-    var days = ((state.archive && state.archive.days) || []).slice().sort(function (a, b) {
-      return String(b.date).localeCompare(String(a.date));
-    }).slice(0, 14);
+    var dates = taskDateList();
+    var selected = state.tasksBrowseDate || studyDate();
+    if (dates.indexOf(selected) === -1) selected = dates[0] || studyDate();
+    state.tasksBrowseDate = selected;
+    var day = null;
+    ((state.archive && state.archive.days) || []).forEach(function (d) {
+      if (d && d.date === selected) day = d;
+    });
+    var completed = (day && day.completedTaskIds) || [];
+    var tasks = tasksForDate(selected);
+    var opts = dates.map(function (d) {
+      return '<option value="' + escapeAttr(d) + '"' + (d === selected ? ' selected' : '') + '>' +
+        escapeHtml(d) + (d === studyDate() ? '（今天）' : '') + '</option>';
+    }).join('');
 
-    var body = days.map(function (d) {
-      var tags = (d.completedTaskIds || []).map(function (id) {
-        return '<span class="tag">完成 ' + escapeHtml(id) + '</span>';
+    var body;
+    if (!tasks.length) {
+      body = '<div class="empty">这一天还没有缓存任务。点右上角「同步」或到设置 → 同步与备份拉取。</div>';
+    } else {
+      body = tasks.map(function (t) {
+        var done = completed.indexOf(t.id) !== -1;
+        var html = '<div class="task' + (done ? ' is-done' : '') + '" data-task-id="' + escapeAttr(t.id) + '">';
+        html += '<input class="task-check" type="checkbox" ' + (done ? 'checked' : '') + ' aria-label="完成">';
+        html += '<div>';
+        html += '<div class="task-meta"><span class="dot ' + subjectClass(t.subject) + '"></span>';
+        html += '<span>' + escapeHtml(t.subject || '') + '</span>';
+        if (t.slot) html += '<span>· ' + escapeHtml(t.slot) + '</span>';
+        html += '<span class="tag" style="margin-left:6px">' + (done ? '已完成' : '未完成') + '</span>';
+        html += '</div>';
+        html += '<h3 class="task-title">' + escapeHtml(t.title || '') + '</h3>';
+        if (t.body) html += '<p class="task-body">' + escapeHtml(t.body) + '</p>';
+        if (t.from) html += '<div class="task-from">来自 ' + escapeHtml(t.from) + '</div>';
+        html += '</div></div>';
+        return html;
       }).join('');
-      var weak = (d.weakTopics || []).map(function (w) {
-        return '<span class="tag">' + escapeHtml((w.subject || '') + '·' + (w.topic || '')) + '</span>';
-      }).join('');
-      var full = (d.chats || []);
-      var chats = full.slice(-4).map(function (c) {
-        var who = c.role === 'user' ? '我' : (c.role === 'assistant' ? 'DS' : c.role);
-        return '<div class="muted">[' + escapeHtml(who) + '] ' + escapeHtml(String(c.content || '').slice(0, 80)) + '</div>';
-      }).join('');
-      if (full.length) {
-        chats = '<div class="muted">完整对话 ' + full.length + ' 条（清屏不删）</div>' + chats;
-      } else {
-        chats = (d.chatSummary || []).slice(-3).map(function (c) {
-          return '<div class="muted">Q: ' + escapeHtml(c.q || '') + '<br>A: ' + escapeHtml(c.aBrief || '') + '</div>';
-        }).join('');
-      }
-      return '<div class="archive-day card">' +
-        '<h3>' + escapeHtml(d.date) + '</h3>' +
-        '<div class="taglist">' + tags + weak + '</div>' +
-        (d.notes ? '<p class="muted">' + escapeHtml(d.notes) + '</p>' : '') +
-        chats +
-        '</div>';
-    }).join('') || '<div class="empty">本地还没有存档天数。</div>';
+    }
 
     root.innerHTML =
       '<section class="card">' +
-        '<h2 class="card-title">存档同步</h2>' +
-        '<p class="muted">任务只下载；学习存档可上传。冲突时先拉取远程按日期合并：完成项取并集，chats 按 id 去重合并，备注两侧保留，分钟取较大值。清屏只影响界面，不删 chats。</p>' +
-        '<div class="btn-row">' +
-          '<button type="button" class="btn" id="btn-pull-tasks">拉取任务</button>' +
-          '<button type="button" class="btn ghost" id="btn-pull-archive">拉取存档</button>' +
-          '<button type="button" class="btn secondary" id="btn-push-archive">上传存档</button>' +
-        '</div>' +
-        '<div class="status-line" id="sync-status"></div>' +
-      '</section>' +
-      '<section class="card"><h2 class="card-title">最近本地存档</h2>' + body + '</section>';
+        '<h2 class="card-title">每日任务</h2>' +
+        '<p class="muted">浏览 bot 下发的任务缓存（不含答案）。默认今天，可切换历史日期。</p>' +
+        '<div class="field"><label>日期</label><select id="tasks-date">' + opts + '</select></div>' +
+        '<p class="muted">共 ' + tasks.length + ' 项</p>' +
+        body +
+      '</section>';
 
-    $('btn-pull-tasks').addEventListener('click', function () {
-      setStatus('sync-status', 'busy', '拉取任务中…');
-      pullTasks().then(function () {
-        setStatus('sync-status', 'ok', '任务已更新');
-        toast('任务已同步');
-        renderToday();
-      }).catch(function (e) {
-        setStatus('sync-status', 'err', e.message || String(e));
-      });
-    });
-    $('btn-pull-archive').addEventListener('click', function () {
-      setStatus('sync-status', 'busy', '拉取存档中…');
-      pullArchive().then(function () {
-        setStatus('sync-status', 'ok', '存档已合并到本地');
+    var sel = $('tasks-date');
+    if (sel) {
+      sel.addEventListener('change', function () {
+        state.tasksBrowseDate = sel.value || studyDate();
         renderArchive();
-      }).catch(function (e) {
-        setStatus('sync-status', 'err', e.message || String(e));
       });
-    });
-    $('btn-push-archive').addEventListener('click', function () {
-      setStatus('sync-status', 'busy', '上传中…');
-      pushArchive().then(function () {
-        setStatus('sync-status', 'ok', '存档已上传到 GitHub');
-        toast('上传成功');
-      }).catch(function (e) {
-        setStatus('sync-status', 'err', e.message || String(e));
+    }
+    root.querySelectorAll('.task-check').forEach(function (box) {
+      box.addEventListener('change', function () {
+        var taskEl = box.closest('.task');
+        var id = taskEl && taskEl.getAttribute('data-task-id');
+        if (!id) return;
+        var d = ensureDay(state.tasksBrowseDate || studyDate());
+        var set = {};
+        (d.completedTaskIds || []).forEach(function (x) { set[x] = 1; });
+        if (box.checked) set[id] = 1; else delete set[id];
+        d.completedTaskIds = Object.keys(set);
+        saveArchive();
+        markArchiveDirty();
+        renderArchive();
+        toast(box.checked ? '已勾完成' : '已取消完成');
       });
     });
   }
@@ -1045,14 +1216,15 @@
     var token = ghToken();
     var key = dsKey();
     var model = dsModel();
+    var sp = syncPrefs();
     var modelOpts = DEEPSEEK_MODELS.map(function (m) {
       return '<option value="' + m + '"' + (m === model ? ' selected' : '') + '>' + m + '</option>';
     }).join('');
 
     root.innerHTML =
       '<section class="card">' +
-        '<h2 class="card-title">GitHub 同步</h2>' +
-        '<p class="muted">默认仓库 <code>yoreverse2423/my-agent</code>。Token 只存本机 localStorage，不会进仓库。需要 Contents 读写权限。</p>' +
+        '<h2 class="card-title">GitHub</h2>' +
+        '<p class="muted">默认仓库 <code>yoreverse2423/my-agent</code>。Token 只存本机，需要 Contents 读写。</p>' +
         '<div class="field"><label>Owner</label><input id="gh-owner" value="' + escapeAttr(prefs.owner) + '"></div>' +
         '<div class="field"><label>Repo</label><input id="gh-repo" value="' + escapeAttr(prefs.repo) + '"></div>' +
         '<div class="field"><label>Personal Access Token</label>' +
@@ -1066,12 +1238,24 @@
       '</section>' +
 
       '<section class="card">' +
+        '<h2 class="card-title">同步与备份</h2>' +
+        '<p class="muted">任务只下载；学习存档可上传。冲突时先拉远程再按日合并。清屏只藏界面，不删对话。</p>' +
+        '<label class="check-row" style="display:flex;gap:8px;align-items:center;margin:10px 0">' +
+          '<input id="auto-upload" type="checkbox"' + (sp.autoUpload ? ' checked' : '') + '>' +
+          '<span>每 5 分钟自动上传存档</span>' +
+        '</label>' +
+        '<p class="muted">仅在网页/App 打开且已联网、Token 齐全时运行；关掉后不会在后台继续。</p>' +
+        '<div class="btn-row">' +
+          '<button type="button" class="btn" id="btn-pull-tasks">拉取任务</button>' +
+          '<button type="button" class="btn ghost" id="btn-pull-archive">拉取存档</button>' +
+          '<button type="button" class="btn secondary" id="btn-push-archive">上传存档</button>' +
+        '</div>' +
+        '<div class="status-line" id="sync-backup-status"></div>' +
+      '</section>' +
+
+      '<section class="card">' +
         '<h2 class="card-title">DeepSeek</h2>' +
-        '<p class="muted">Key 只存本机。问答页发送后会显示「正在思考」等待状态。</p>' +
-        '<ol class="settings-list">' +
-          '<li>打开 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer">platform.deepseek.com/api_keys</a> 创建密钥。</li>' +
-          '<li>粘贴到下方保存。点「复制 / 小眼睛」由你手动触发，不会自动复制。</li>' +
-        '</ol>' +
+        '<p class="muted">Key 只存本机。问答页发送后会显示思考等待。</p>' +
         '<div class="field"><label>API Key</label>' +
           secretFieldHtml('ds-key', key ? '已保存（输入新值可覆盖）' : 'sk-…') +
         '</div>' +
@@ -1087,21 +1271,22 @@
 
       '<section class="card">' +
         '<h2 class="card-title">ColorOS 手表 APK</h2>' +
-        '<p class="muted">版本 <strong>0.2.1</strong>（armeabi-v7a · 离线 WebView · 原生 DeepSeek · 去黄框）。</p>' +
+        '<p class="muted">版本 <strong>' + APK_VERSION + '</strong>（armeabi-v7a · 离线 WebView · 原生 DeepSeek）。</p>' +
         '<div class="btn-row">' +
-          '<a class="btn" href="downloads/xiaoxuexiji-watch-armeabi-v7a.apk" download>下载手表 APK</a>' +
-          '<a class="btn secondary" href="' + PAGES_BASE + 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk" target="_blank" rel="noopener noreferrer">Pages 直链</a>' +
+          '<a class="btn" href="' + APK_URL + '" download>下载手表 APK</a>' +
+          '<a class="btn secondary" href="' + PAGES_BASE + APK_URL + '" target="_blank" rel="noopener noreferrer">Pages 直链</a>' +
         '</div>' +
-        '<p class="muted" style="margin-top:10px">电脑安装：<code>adb install -r xiaoxuexiji-watch-armeabi-v7a.apk</code>。校验见同目录 <code>.sha256</code>。</p>' +
+        '<p class="muted" style="margin-top:10px">电脑安装：<code>adb install -r xiaoxuexiji-watch-armeabi-v7a.apk</code></p>' +
       '</section>' +
 
       '<section class="card">' +
         '<h2 class="card-title">关于</h2>' +
-        '<p class="muted">小学习机 StudyHub v0.2.1 · 默认仓库 <code>yoreverse2423/my-agent</code>。问答清屏只藏界面；完整 <code>chats</code> 仍上传。协议见 docs/bot-protocol.md。</p>' +
+        '<p class="muted">' + escapeHtml(BRAND_NAME) + ' v' + APK_VERSION + ' · 仓库 <code>yoreverse2423/my-agent</code>。协议见 docs/bot-protocol.md。</p>' +
       '</section>';
 
     bindSecretField('gh-token', token);
     bindSecretField('ds-key', key);
+    refreshSyncStatusUi();
 
     $('btn-save-gh').addEventListener('click', function () {
       saveGhPrefs($('gh-owner').value, $('gh-repo').value);
@@ -1126,6 +1311,52 @@
       lsSetStr(STORAGE_DS_KEY, '');
       toast('Key 已清除');
       renderSettings();
+    });
+
+    var auto = $('auto-upload');
+    if (auto) {
+      auto.addEventListener('change', function () {
+        saveSyncPrefs({ autoUpload: !!auto.checked });
+        if (auto.checked) {
+          startAutoUploadLoop();
+          toast('已开启：打开本应用时每 5 分钟尝试上传');
+          // 不立刻上传空白
+          maybeAutoUpload();
+        } else {
+          toast('已关闭自动上传');
+        }
+        refreshSyncStatusUi();
+      });
+    }
+    $('btn-pull-tasks').addEventListener('click', function () {
+      setStatus('sync-backup-status', 'busy', '拉取任务中…');
+      pullTasks().then(function () {
+        setStatus('sync-backup-status', 'ok', '任务已更新');
+        toast('任务已同步');
+        if (state.view === 'today') renderToday();
+        if (state.view === 'archive') renderArchive();
+      }).catch(function (e) {
+        setStatus('sync-backup-status', 'err', e.message || String(e));
+      });
+    });
+    $('btn-pull-archive').addEventListener('click', function () {
+      setStatus('sync-backup-status', 'busy', '拉取存档中…');
+      pullArchive().then(function () {
+        setStatus('sync-backup-status', 'ok', '存档已合并到本地');
+        toast('存档已合并');
+      }).catch(function (e) {
+        setStatus('sync-backup-status', 'err', e.message || String(e));
+      });
+    });
+    $('btn-push-archive').addEventListener('click', function () {
+      setStatus('sync-backup-status', 'busy', '上传中…');
+      pushArchive().then(function () {
+        refreshSyncStatusUi();
+        toast('上传成功');
+      }).catch(function (e) {
+        refreshSyncStatusUi();
+        setStatus('sync-backup-status', 'err', e.message || String(e));
+      });
     });
   }
 
@@ -1165,6 +1396,7 @@
         pullTasks().then(function () {
           toast('任务已同步');
           if (state.view === 'today') renderToday();
+          if (state.view === 'archive') renderArchive();
         }).catch(function (e) {
           toast(e.message || '同步失败');
         }).then(function () { quick.disabled = false; });
@@ -1174,8 +1406,10 @@
 
   function boot() {
     loadLocal();
+    state.tasksBrowseDate = studyDate();
     bindChrome();
     setView('today');
+    if (syncPrefs().autoUpload) startAutoUploadLoop();
     // Try silent pull of packaged/sample tasks if cache empty
     if (!state.tasksDoc || !(state.tasksDoc.tasks || []).length) {
       fetch(TASKS_PATH + '?_=' + Date.now(), { cache: 'no-store' }).then(function (r) {
@@ -1183,9 +1417,10 @@
         return r.json();
       }).then(function (doc) {
         if (doc && Array.isArray(doc.tasks)) {
-          state.tasksDoc = doc;
+          state.tasksDoc = mergeTasksDoc(doc);
           saveTasksCache();
           if (state.view === 'today') renderToday();
+          if (state.view === 'archive') renderArchive();
         }
       }).catch(function () {});
     }

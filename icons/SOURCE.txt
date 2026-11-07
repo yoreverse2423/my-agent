@@ -1,4 +1,9 @@
-Source (authoritative): /home/box/agent-data/agents/4bfaf606-d19a-4661-b692-af57e62ec99f/attachments/3a938d4a0b5b0ea2cf31ac0df87c195a9e5202a4442016b280a43a7150589ff4.jpg
-Local copy: icons/source-3a938d4a.jpg (515709 bytes)
-Subject: yellow/blonde curly hair, green garden background. Face-centered square crop.
-Replaces incorrect teal-hair substitute used in 0.2.0.
+Authoritative user-cropped icon (full frame, do not re-crop):
+  /workspace/StudyHub-spec/user-final-icon.jpg
+  SHA256 b0312a29032cba94980f983fd556b956660dccb555fb7d527a81bebfd687af12
+  size 892x892 RGB, 386132 bytes
+Local exact copies: icons/source-user-final-icon.jpg, icons/source-b0312a29-user-final.jpg
+Lossless display: icons/preview-native-lossless.png
+Generation: contain into square with transparent letterbox only when needed;
+no face crop, no rounded mask, no JPEG re-encode of derivatives (PNG only).
+System launcher may still apply its own adaptive/round mask (uncontrollable).
