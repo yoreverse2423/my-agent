@@ -961,9 +961,10 @@
   }
 
   function secretFieldHtml(id, placeholder) {
+    var eyeSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
     return '<div class="secret-field">' +
       '<input id="' + id + '" class="secret-input" type="password" autocomplete="off" spellcheck="false" placeholder="' + escapeAttr(placeholder) + '">' +
-      '<button type="button" class="secret-btn" data-secret-eye="' + id + '" title="显示/隐藏" aria-label="显示或隐藏">👁</button>' +
+      '<button type="button" class="secret-btn" data-secret-eye="' + id + '" title="显示密码" aria-label="显示密码" aria-pressed="false">' + eyeSvg + '</button>' +
       '<button type="button" class="secret-btn" data-secret-copy="' + id + '" title="复制" aria-label="复制">复制</button>' +
     '</div>';
   }
@@ -973,31 +974,50 @@
     if (!input) return;
     var eye = document.querySelector('[data-secret-eye="' + inputId + '"]');
     var copy = document.querySelector('[data-secret-copy="' + inputId + '"]');
-    function hide() { input.type = 'password'; }
+
+    var eyeOpenSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+    var eyeOffSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
+
+    function setVisible(visible) {
+      input.type = visible ? 'text' : 'password';
+      if (eye) {
+        var label = visible ? '隐藏密码' : '显示密码';
+        eye.setAttribute('title', label);
+        eye.setAttribute('aria-label', label);
+        eye.setAttribute('aria-pressed', visible ? 'true' : 'false');
+        eye.innerHTML = visible ? eyeOffSvg : eyeOpenSvg;
+      }
+    }
+
     if (eye) {
-      eye.addEventListener('click', function () {
-        input.type = input.type === 'password' ? 'text' : 'password';
+      eye.addEventListener('click', function (ev) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      if (ev && ev.preventDefault) ev.preventDefault();
+        setVisible(input.type === 'password');
       });
     }
+
     if (copy) {
-      copy.addEventListener('click', function () {
+      copy.addEventListener('click', function (ev) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      if (ev && ev.preventDefault) ev.preventDefault();
         var val = normalizeToken(input.value);
         if (!val) val = normalizeToken(savedValue || '');
-        if (!val) { toast('没有可复制的内容'); return; }
+        if (!val) {
+          if (typeof toast === 'function') toast('没有可复制的内容');
+          return;
+        }
         function ok() {
-          toast('已复制到剪贴板');
-          hide();
+          if (typeof toast === 'function') toast('已复制到剪贴板');
         }
         function fail(err) {
           var msg = (err && err.message) ? err.message : '剪贴板不可用';
-          toast('复制失败：' + msg);
-          hide();
+          if (typeof toast === 'function') toast('复制失败：' + msg);
         }
         try {
           if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(val).then(ok).catch(fail);
           } else {
-            // fallback
             var ta = document.createElement('textarea');
             ta.value = val;
             ta.setAttribute('readonly', '');
@@ -1014,8 +1034,6 @@
         } catch (e) { fail(e); }
       });
     }
-    // restore hidden when leaving the field
-    input.addEventListener('blur', function () { hide(); });
   }
 
   function renderSettings() {

@@ -511,3 +511,12 @@ select:focus-visible, [tabindex]:focus-visible, [role="button"]:focus-visible,
   color: var(--danger);
   white-space: pre-wrap;
 }
+
+.secret-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+}
+.secret-btn svg { display: block; pointer-events: none; }
+.secret-btn[aria-pressed="true"] { background: var(--primary-soft); color: var(--primary); }
