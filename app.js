@@ -21,7 +21,7 @@
   var DEEPSEEK_MODELS = ['deepseek-chat', 'deepseek-reasoner'];
   var PAGES_BASE = 'https://yoreverse2423.github.io/my-agent/';
   var APK_URL = 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk';
-  var APK_VERSION = '0.2.4';
+  var APK_VERSION = '0.3.0';
   var AUTO_UPLOAD_GAP_MS = 5 * 60 * 1000;
   var AUTO_UPLOAD_TICK_MS = 20 * 1000;
   var BRAND_NAME = "Yore's agent";
@@ -45,6 +45,56 @@
   };
 
   var ASK_TIMEOUT_MS = 90000;
+
+  function svgIcon(name, cls) {
+    var c = cls || 'ico';
+    var paths = {
+      sync: '<path d="M21 12a9 9 0 1 1-2.6-6.3" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><path d="M21 3v6h-6" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
+      ask: '<path d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v6A2.5 2.5 0 0 1 16.5 15H10l-4 3.5V15H7.5A2.5 2.5 0 0 1 5 12.5v-6Z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/>',
+      tasks: '<path d="M9 6h11M9 12h11M9 18h11" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><path d="M5 6.5 6.2 7.7 8 5.5M5 12.5 6.2 13.7 8 11.5M5 18.5 6.2 19.7 8 17.5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
+      clear: '<path d="M7 7l10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round"/>',
+      send: '<path d="M5 12h12M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"/>',
+      chev: '<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
+      download: '<path d="M12 4v10M8 10l4 4 4-4M5 18h14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>'
+    };
+    return '<svg class="' + c + '" viewBox="0 0 24 24" aria-hidden="true">' + (paths[name] || '') + '</svg>';
+  }
+
+  function taskRowHtml(t, done) {
+    var html = '<div class="task' + (done ? ' is-done' : '') + '" data-task-id="' + escapeAttr(t.id) + '">';
+    html += '<input class="task-check" type="checkbox" ' + (done ? 'checked' : '') + ' aria-label="完成">';
+    html += '<div>';
+    html += '<div class="task-meta"><span class="dot ' + subjectClass(t.subject) + '"></span>';
+    html += '<span>' + escapeHtml(t.subject || '') + '</span>';
+    if (t.slot) html += '<span>· ' + escapeHtml(t.slot) + '</span>';
+    html += '<span class="pill ' + (done ? 'ok' : 'todo') + '">' + (done ? '已完成' : '未完成') + '</span>';
+    html += '</div>';
+    html += '<h3 class="task-title">' + escapeHtml(t.title || '') + '</h3>';
+    if (t.body) html += '<p class="task-body">' + escapeHtml(t.body) + '</p>';
+    if (t.from) html += '<div class="task-from">来自 ' + escapeHtml(t.from) + '</div>';
+    html += '</div></div>';
+    return html;
+  }
+
+  function bindTaskChecks(root, dateGetter, after) {
+    root.querySelectorAll('.task-check').forEach(function (box) {
+      box.addEventListener('change', function () {
+        var taskEl = box.closest('.task');
+        var id = taskEl && taskEl.getAttribute('data-task-id');
+        if (!id) return;
+        var d = ensureDay(dateGetter());
+        var set = {};
+        (d.completedTaskIds || []).forEach(function (x) { set[x] = 1; });
+        if (box.checked) set[id] = 1; else delete set[id];
+        d.completedTaskIds = Object.keys(set);
+        saveArchive();
+        markArchiveDirty();
+        if (after) after();
+        toast(box.checked ? '已勾完成' : '已取消完成');
+      });
+    });
+  }
+
 
   /* ---------- utils ---------- */
 
@@ -859,52 +909,68 @@
     var date = studyDate();
     var day = ensureDay(date);
     var tasks = todayTasks();
-    var html = '';
-    html += '<section class="card"><h2 class="card-title">今日任务</h2>';
-    html += '<p class="muted">学习日 ' + date + '（凌晨 4:00 换日）· 共 ' + tasks.length + ' 项</p>';
-    if (!tasks.length) {
-      html += '<div class="empty">还没有任务。点右上角「同步」或到「任务」页查看；设置里可拉取 GitHub 任务。</div>';
-    } else {
-      tasks.forEach(function (t) {
-        var done = (day.completedTaskIds || []).indexOf(t.id) !== -1;
-        html += '<div class="task' + (done ? ' is-done' : '') + '" data-task-id="' + escapeAttr(t.id) + '">';
-        html += '<input class="task-check" type="checkbox" ' + (done ? 'checked' : '') + ' aria-label="完成">';
-        html += '<div>';
-        html += '<div class="task-meta"><span class="dot ' + subjectClass(t.subject) + '"></span>';
-        html += '<span>' + escapeHtml(t.subject || '') + '</span>';
-        if (t.slot) html += '<span>· ' + escapeHtml(t.slot) + '</span>';
-        html += '</div>';
-        html += '<h3 class="task-title">' + escapeHtml(t.title || '') + '</h3>';
-        if (t.body) html += '<p class="task-body">' + escapeHtml(t.body) + '</p>';
-        if (t.from) html += '<div class="task-from">来自 ' + escapeHtml(t.from) + '</div>';
-        html += '</div></div>';
-      });
-    }
-    html += '</section>';
-
-    html += '<section class="card"><h2 class="card-title">今日备注</h2>';
-    html += '<div class="field"><textarea id="day-notes" rows="3" placeholder="今天哪里不会、想让 bot 知道的…">' +
-      escapeHtml(day.notes || '') + '</textarea></div>';
-    html += '<div class="btn-row"><button type="button" class="btn secondary" id="btn-save-notes">保存备注</button></div>';
-    html += '</section>';
-    root.innerHTML = html;
-
-    root.querySelectorAll('.task-check').forEach(function (box) {
-      box.addEventListener('change', function () {
-        var taskEl = box.closest('.task');
-        var id = taskEl && taskEl.getAttribute('data-task-id');
-        if (!id) return;
-        var d = ensureDay(studyDate());
-        var set = {};
-        (d.completedTaskIds || []).forEach(function (x) { set[x] = 1; });
-        if (box.checked) set[id] = 1; else delete set[id];
-        d.completedTaskIds = Object.keys(set);
-        saveArchive();
-        markArchiveDirty();
-        renderToday();
-        toast(box.checked ? '已勾完成' : '已取消完成');
-      });
+    var doneN = 0;
+    tasks.forEach(function (t) {
+      if ((day.completedTaskIds || []).indexOf(t.id) !== -1) doneN += 1;
     });
+    var total = tasks.length;
+    var pct = total ? Math.round((doneN / total) * 100) : 0;
+    var pending = tasks.filter(function (t) {
+      return (day.completedTaskIds || []).indexOf(t.id) === -1;
+    });
+    var focus = pending.slice(0, 3);
+    if (!focus.length) focus = tasks.slice(0, 3);
+
+    var focusHtml;
+    if (!tasks.length) {
+      focusHtml = '<div class="empty">今天还没有任务。点右上角同步，或到「任务」页查看缓存。</div>';
+    } else {
+      focusHtml = focus.map(function (t) {
+        var done = (day.completedTaskIds || []).indexOf(t.id) !== -1;
+        return taskRowHtml(t, done);
+      }).join('');
+    }
+
+    root.innerHTML =
+      '<section class="hero">' +
+        '<img class="hero-portrait" src="hero-portrait.png" width="72" height="72" alt="Yore" loading="lazy">' +
+        '<div>' +
+          '<p class="hero-kicker">TODAY</p>' +
+          '<h2 class="hero-title">今日重点</h2>' +
+          '<p class="hero-sub">学习日 ' + escapeHtml(date) + ' · 凌晨 4 点换日</p>' +
+        '</div>' +
+      '</section>' +
+
+      '<section class="panel">' +
+        '<div class="panel-head"><h2 class="panel-title">完成度</h2><span class="panel-meta">' + doneN + ' / ' + total + '</span></div>' +
+        '<div class="progress-row">' +
+          '<div class="progress-track" aria-hidden="true"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
+          '<div class="progress-label">' + pct + '%</div>' +
+        '</div>' +
+        '<div class="action-row">' +
+          '<button type="button" class="btn" id="btn-go-chat">' + svgIcon('ask') + '继续提问</button>' +
+          '<button type="button" class="btn secondary" id="btn-go-tasks">' + svgIcon('tasks') + '全部任务</button>' +
+        '</div>' +
+      '</section>' +
+
+      '<section class="panel">' +
+        '<div class="panel-head"><h2 class="panel-title">今日任务</h2><span class="panel-meta">' + (pending.length ? ('待办 ' + pending.length) : (total ? '已全部完成' : '暂无')) + '</span></div>' +
+        focusHtml +
+        (tasks.length > focus.length ? '<p class="muted" style="margin-top:8px">首页只展示重点几项，完整列表在「任务」。</p>' : '') +
+      '</section>' +
+
+      '<section class="panel">' +
+        '<div class="panel-head"><h2 class="panel-title">今日备注</h2></div>' +
+        '<div class="field"><textarea id="day-notes" rows="3" placeholder="今天哪里不会、想让她记住的…">' +
+          escapeHtml(day.notes || '') + '</textarea></div>' +
+        '<div class="btn-row"><button type="button" class="btn secondary" id="btn-save-notes">保存备注</button></div>' +
+      '</section>';
+
+    bindTaskChecks(root, function () { return studyDate(); }, function () { renderToday(); });
+    var goChat = $('btn-go-chat');
+    if (goChat) goChat.addEventListener('click', function () { setView('chat'); });
+    var goTasks = $('btn-go-tasks');
+    if (goTasks) goTasks.addEventListener('click', function () { setView('archive'); });
     var btn = $('btn-save-notes');
     if (btn) {
       btn.addEventListener('click', function () {
@@ -912,7 +978,7 @@
         d.notes = ($('day-notes') && $('day-notes').value) || '';
         saveArchive();
         markArchiveDirty();
-        toast('备注已保存到本地存档');
+        toast('备注已保存');
       });
     }
   }
@@ -971,7 +1037,7 @@
       return '<div class="bubble ' + cls + '" data-id="' + escapeAttr(m.id || '') + '"><div class="bubble-inner">' + body + '</div></div>';
     }).join('');
     if (!log) {
-      log = '<div class="bubble system">把题干贴到底部输入框，点发送。清屏只藏界面记录，完整对话仍会进存档上传。</div>';
+      log = '<div class="bubble system">在底部输入问题后发送。清屏只藏界面，完整对话仍会保存并上传。</div>';
     }
     if (state.busy) {
       log += '<div class="bubble system is-thinking" id="bubble-thinking">正在思考，等待回复<span class="dots"></span></div>';
@@ -980,11 +1046,11 @@
     root.innerHTML =
       '<div class="chat-shell">' +
         '<div class="chat-log" id="chat-log">' + log + '</div>' +
-        '<div class="status-line" id="chat-status"></div>' +
+        '<div class="chat-status-bar status-line" id="chat-status"></div>' +
         '<div class="chat-composer" id="chat-composer">' +
-          '<button type="button" class="chat-clear-btn" id="btn-chat-clear" title="清屏（仅隐藏界面）" aria-label="清屏">×</button>' +
-          '<input class="chat-input" id="chat-input" type="text" enterkeyhint="send" autocomplete="off" placeholder="输入问题…">' +
-          '<button type="button" class="btn chat-send" id="btn-ask">发送</button>' +
+          '<button type="button" class="chat-clear-btn" id="btn-chat-clear" title="清屏（只藏界面，对话仍保留）" aria-label="清屏">' + svgIcon('clear') + '</button>' +
+          '<input class="chat-input" id="chat-input" type="text" enterkeyhint="send" autocomplete="off" placeholder="把题干或疑问写在这里…">' +
+          '<button type="button" class="chat-send" id="btn-ask">发送</button>' +
         '</div>' +
       '</div>';
 
@@ -1059,7 +1125,6 @@
   }
 
   function renderArchive() {
-    // 「任务」页：按日期浏览缓存的 daily-tasks（原 archive tab）
     var root = $('view-archive');
     if (!root) return;
     var dates = taskDateList();
@@ -1072,65 +1137,50 @@
     });
     var completed = (day && day.completedTaskIds) || [];
     var tasks = tasksForDate(selected);
-    var opts = dates.map(function (d) {
-      return '<option value="' + escapeAttr(d) + '"' + (d === selected ? ' selected' : '') + '>' +
-        escapeHtml(d) + (d === studyDate() ? '（今天）' : '') + '</option>';
+
+    var chips = dates.map(function (d) {
+      var short = String(d).slice(5);
+      var label = d === studyDate() ? '今天' : short;
+      return '<button type="button" class="date-chip' + (d === selected ? ' is-on' : '') + '" data-date="' + escapeAttr(d) + '">' +
+        escapeHtml(label) + '</button>';
     }).join('');
 
     var body;
     if (!tasks.length) {
-      body = '<div class="empty">这一天还没有缓存任务。点右上角「同步」或到设置 → 同步与备份拉取。</div>';
+      body = '<div class="empty">这一天还没有缓存任务。点右上角同步，或到设置里拉取任务。</div>';
     } else {
-      body = tasks.map(function (t) {
-        var done = completed.indexOf(t.id) !== -1;
-        var html = '<div class="task' + (done ? ' is-done' : '') + '" data-task-id="' + escapeAttr(t.id) + '">';
-        html += '<input class="task-check" type="checkbox" ' + (done ? 'checked' : '') + ' aria-label="完成">';
-        html += '<div>';
-        html += '<div class="task-meta"><span class="dot ' + subjectClass(t.subject) + '"></span>';
-        html += '<span>' + escapeHtml(t.subject || '') + '</span>';
-        if (t.slot) html += '<span>· ' + escapeHtml(t.slot) + '</span>';
-        html += '<span class="tag" style="margin-left:6px">' + (done ? '已完成' : '未完成') + '</span>';
-        html += '</div>';
-        html += '<h3 class="task-title">' + escapeHtml(t.title || '') + '</h3>';
-        if (t.body) html += '<p class="task-body">' + escapeHtml(t.body) + '</p>';
-        if (t.from) html += '<div class="task-from">来自 ' + escapeHtml(t.from) + '</div>';
-        html += '</div></div>';
-        return html;
+      var groups = {};
+      var order = [];
+      tasks.forEach(function (t) {
+        var g = t.subject || '综合';
+        if (!groups[g]) { groups[g] = []; order.push(g); }
+        groups[g].push(t);
+      });
+      body = order.map(function (g) {
+        var rows = groups[g].map(function (t) {
+          return taskRowHtml(t, completed.indexOf(t.id) !== -1);
+        }).join('');
+        return '<div class="group-label">' + escapeHtml(g) + ' · ' + groups[g].length + '</div>' + rows;
       }).join('');
     }
 
+    var doneN = tasks.filter(function (t) { return completed.indexOf(t.id) !== -1; }).length;
+
     root.innerHTML =
-      '<section class="card">' +
-        '<h2 class="card-title">每日任务</h2>' +
-        '<p class="muted">浏览 bot 下发的任务缓存（不含答案）。默认今天，可切换历史日期。</p>' +
-        '<div class="field"><label>日期</label><select id="tasks-date">' + opts + '</select></div>' +
-        '<p class="muted">共 ' + tasks.length + ' 项</p>' +
+      '<section class="panel">' +
+        '<div class="panel-head"><h2 class="panel-title">每日任务</h2><span class="panel-meta">' + doneN + '/' + tasks.length + ' 完成</span></div>' +
+        '<p class="muted" style="margin:0 0 8px">按日期浏览 bot 下发的任务（不含答案）。</p>' +
+        '<div class="date-chips" id="tasks-date-chips">' + chips + '</div>' +
         body +
       '</section>';
 
-    var sel = $('tasks-date');
-    if (sel) {
-      sel.addEventListener('change', function () {
-        state.tasksBrowseDate = sel.value || studyDate();
+    root.querySelectorAll('.date-chip').forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        state.tasksBrowseDate = chip.getAttribute('data-date') || studyDate();
         renderArchive();
-      });
-    }
-    root.querySelectorAll('.task-check').forEach(function (box) {
-      box.addEventListener('change', function () {
-        var taskEl = box.closest('.task');
-        var id = taskEl && taskEl.getAttribute('data-task-id');
-        if (!id) return;
-        var d = ensureDay(state.tasksBrowseDate || studyDate());
-        var set = {};
-        (d.completedTaskIds || []).forEach(function (x) { set[x] = 1; });
-        if (box.checked) set[id] = 1; else delete set[id];
-        d.completedTaskIds = Object.keys(set);
-        saveArchive();
-        markArchiveDirty();
-        renderArchive();
-        toast(box.checked ? '已勾完成' : '已取消完成');
       });
     });
+    bindTaskChecks(root, function () { return state.tasksBrowseDate || studyDate(); }, function () { renderArchive(); });
   }
 
   function secretFieldHtml(id, placeholder) {
@@ -1221,68 +1271,61 @@
       return '<option value="' + m + '"' + (m === model ? ' selected' : '') + '>' + m + '</option>';
     }).join('');
 
+    function fold(id, title, hint, body, open) {
+      return '<details class="fold" id="' + id + '"' + (open ? ' open' : '') + '>' +
+        '<summary><span>' + title + '</span><span style="display:flex;align-items:center;gap:8px"><span class="fold-hint">' + hint + '</span>' +
+        svgIcon('chev', 'fold-chev') + '</span></summary>' +
+        '<div class="fold-body">' + body + '</div></details>';
+    }
+
+    var ghBody =
+      '<p class="muted">默认仓库 yoreverse2423/my-agent。令牌只保存在本机。</p>' +
+      '<div class="field"><label>Owner</label><input id="gh-owner" value="' + escapeAttr(prefs.owner) + '"></div>' +
+      '<div class="field"><label>Repo</label><input id="gh-repo" value="' + escapeAttr(prefs.repo) + '"></div>' +
+      '<div class="field"><label>访问令牌</label>' + secretFieldHtml('gh-token', token ? '已保存（输入新值可覆盖）' : 'github_pat_…') + '</div>' +
+      '<div class="btn-row">' +
+        '<button type="button" class="btn" id="btn-save-gh">保存</button>' +
+        '<button type="button" class="btn danger" id="btn-clear-gh">清除令牌</button>' +
+      '</div>' +
+      '<div class="status-line" id="gh-status">' + (token ? '已保存（' + mask(token) + '）' : '尚未保存') + '</div>';
+
+    var syncBody =
+      '<p class="muted">任务只下载；学习记录可上传。冲突时会先合并再写入。</p>' +
+      '<label class="check-row"><input id="auto-upload" type="checkbox"' + (sp.autoUpload ? ' checked' : '') + '>' +
+        '<span>每 5 分钟自动上传<span class="muted" style="display:block;font-size:12px;font-weight:500">仅本应用打开时有效，关闭后不会在后台继续</span></span></label>' +
+      '<div class="btn-row">' +
+        '<button type="button" class="btn" id="btn-pull-tasks">拉取任务</button>' +
+        '<button type="button" class="btn ghost" id="btn-pull-archive">拉取存档</button>' +
+        '<button type="button" class="btn secondary" id="btn-push-archive">上传存档</button>' +
+      '</div>' +
+      '<div class="status-line" id="sync-backup-status"></div>';
+
+    var dsBody =
+      '<p class="muted">密钥只保存在本机。问答页发送后会显示等待状态。</p>' +
+      '<div class="field"><label>API Key</label>' + secretFieldHtml('ds-key', key ? '已保存（输入新值可覆盖）' : 'sk-…') + '</div>' +
+      '<div class="field"><label>模型</label><select id="ds-model">' + modelOpts + '</select></div>' +
+      '<div class="btn-row">' +
+        '<button type="button" class="btn" id="btn-save-ds">保存</button>' +
+        '<button type="button" class="btn danger" id="btn-clear-ds">清除 Key</button>' +
+      '</div>' +
+      '<div class="status-line" id="ds-status">' +
+        (key ? '已保存（' + mask(key) + '）· ' + (hasNativeDeepseek() ? '手表原生通道' : '浏览器直连') : '尚未保存') +
+      '</div>';
+
+    var aboutBody =
+      '<p class="muted">版本 <strong>' + APK_VERSION + '</strong> · armeabi-v7a</p>' +
+      '<div class="btn-row">' +
+        '<a class="btn" href="' + APK_URL + '" download>' + svgIcon('download') + '下载手表版</a>' +
+        '<a class="btn secondary" href="' + PAGES_BASE + APK_URL + '" target="_blank" rel="noopener noreferrer">网页直链</a>' +
+      '</div>' +
+      '<p class="muted" style="margin-top:10px">电脑安装：adb install -r xiaoxuexiji-watch-armeabi-v7a.apk</p>' +
+      '<p class="muted" style="margin-top:8px">' + escapeHtml(BRAND_NAME) + ' · 仓库 yoreverse2423/my-agent</p>';
+
     root.innerHTML =
-      '<section class="card">' +
-        '<h2 class="card-title">GitHub</h2>' +
-        '<p class="muted">默认仓库 <code>yoreverse2423/my-agent</code>。Token 只存本机，需要 Contents 读写。</p>' +
-        '<div class="field"><label>Owner</label><input id="gh-owner" value="' + escapeAttr(prefs.owner) + '"></div>' +
-        '<div class="field"><label>Repo</label><input id="gh-repo" value="' + escapeAttr(prefs.repo) + '"></div>' +
-        '<div class="field"><label>Personal Access Token</label>' +
-          secretFieldHtml('gh-token', token ? '已保存（输入新值可覆盖）' : 'github_pat_…') +
-        '</div>' +
-        '<div class="btn-row">' +
-          '<button type="button" class="btn" id="btn-save-gh">保存</button>' +
-          '<button type="button" class="btn danger" id="btn-clear-gh">清除 Token</button>' +
-        '</div>' +
-        '<div class="status-line" id="gh-status">' + (token ? 'Token 已保存（' + mask(token) + '）' : '尚未保存 Token') + '</div>' +
-      '</section>' +
-
-      '<section class="card">' +
-        '<h2 class="card-title">同步与备份</h2>' +
-        '<p class="muted">任务只下载；学习存档可上传。冲突时先拉远程再按日合并。清屏只藏界面，不删对话。</p>' +
-        '<label class="check-row" style="display:flex;gap:8px;align-items:center;margin:10px 0">' +
-          '<input id="auto-upload" type="checkbox"' + (sp.autoUpload ? ' checked' : '') + '>' +
-          '<span>每 5 分钟自动上传存档</span>' +
-        '</label>' +
-        '<p class="muted">仅在网页/App 打开且已联网、Token 齐全时运行；关掉后不会在后台继续。</p>' +
-        '<div class="btn-row">' +
-          '<button type="button" class="btn" id="btn-pull-tasks">拉取任务</button>' +
-          '<button type="button" class="btn ghost" id="btn-pull-archive">拉取存档</button>' +
-          '<button type="button" class="btn secondary" id="btn-push-archive">上传存档</button>' +
-        '</div>' +
-        '<div class="status-line" id="sync-backup-status"></div>' +
-      '</section>' +
-
-      '<section class="card">' +
-        '<h2 class="card-title">DeepSeek</h2>' +
-        '<p class="muted">Key 只存本机。问答页发送后会显示思考等待。</p>' +
-        '<div class="field"><label>API Key</label>' +
-          secretFieldHtml('ds-key', key ? '已保存（输入新值可覆盖）' : 'sk-…') +
-        '</div>' +
-        '<div class="field"><label>模型</label><select id="ds-model">' + modelOpts + '</select></div>' +
-        '<div class="btn-row">' +
-          '<button type="button" class="btn" id="btn-save-ds">保存</button>' +
-          '<button type="button" class="btn danger" id="btn-clear-ds">清除 Key</button>' +
-        '</div>' +
-        '<div class="status-line" id="ds-status">' +
-          (key ? 'Key 已保存（' + mask(key) + '）· ' + (hasNativeDeepseek() ? '原生桥可用' : '浏览器直连') : '尚未保存 Key') +
-        '</div>' +
-      '</section>' +
-
-      '<section class="card">' +
-        '<h2 class="card-title">ColorOS 手表 APK</h2>' +
-        '<p class="muted">版本 <strong>' + APK_VERSION + '</strong>（armeabi-v7a · 离线 WebView · 原生 DeepSeek）。</p>' +
-        '<div class="btn-row">' +
-          '<a class="btn" href="' + APK_URL + '" download>下载手表 APK</a>' +
-          '<a class="btn secondary" href="' + PAGES_BASE + APK_URL + '" target="_blank" rel="noopener noreferrer">Pages 直链</a>' +
-        '</div>' +
-        '<p class="muted" style="margin-top:10px">电脑安装：<code>adb install -r xiaoxuexiji-watch-armeabi-v7a.apk</code></p>' +
-      '</section>' +
-
-      '<section class="card">' +
-        '<h2 class="card-title">关于</h2>' +
-        '<p class="muted">' + escapeHtml(BRAND_NAME) + ' v' + APK_VERSION + ' · 仓库 <code>yoreverse2423/my-agent</code>。协议见 docs/bot-protocol.md。</p>' +
-      '</section>';
+      fold('fold-gh', 'GitHub 与令牌', token ? '已配置' : '未配置', ghBody, !token) +
+      fold('fold-sync', '同步与备份', sp.autoUpload ? '自动上传开' : '手动', syncBody, true) +
+      fold('fold-ds', '问答密钥', key ? '已配置' : '未配置', dsBody, !key) +
+      fold('fold-about', '关于与下载', 'v' + APK_VERSION, aboutBody, false);
 
     bindSecretField('gh-token', token);
     bindSecretField('ds-key', key);
@@ -1297,14 +1340,14 @@
     });
     $('btn-clear-gh').addEventListener('click', function () {
       lsSetStr(STORAGE_GH_TOKEN, '');
-      toast('Token 已清除');
+      toast('令牌已清除');
       renderSettings();
     });
     $('btn-save-ds').addEventListener('click', function () {
       var k = normalizeToken($('ds-key').value);
       if (k) lsSetStr(STORAGE_DS_KEY, k);
       saveDsPrefs({ model: $('ds-model').value });
-      toast('DeepSeek 设置已保存');
+      toast('问答设置已保存');
       renderSettings();
     });
     $('btn-clear-ds').addEventListener('click', function () {
@@ -1319,8 +1362,7 @@
         saveSyncPrefs({ autoUpload: !!auto.checked });
         if (auto.checked) {
           startAutoUploadLoop();
-          toast('已开启：打开本应用时每 5 分钟尝试上传');
-          // 不立刻上传空白
+          toast('已开启每 5 分钟自动上传');
           maybeAutoUpload();
         } else {
           toast('已关闭自动上传');
@@ -1376,7 +1418,7 @@
 
   function render() {
     var dateEl = $('study-date');
-    if (dateEl) dateEl.textContent = '学习日 ' + studyDate();
+    if (dateEl) dateEl.textContent = studyDate();
     if (state.view === 'today') renderToday();
     else if (state.view === 'chat') renderChat();
     else if (state.view === 'archive') renderArchive();

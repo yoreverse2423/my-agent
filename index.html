@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f7f3e6">
-  <meta name="description" content="Yore's agent：今日任务、DeepSeek 问答、GitHub 存档同步。">
+  <meta name="description" content="Yore's agent：今日任务、问答、学习存档同步。">
   <title>Yore's agent</title>
   <link rel="icon" href="favicon.ico" sizes="any">
   <link rel="icon" type="image/png" href="favicon-32.png" sizes="32x32">
@@ -17,13 +17,15 @@
   <div class="app" id="app">
     <header class="topbar" id="topbar">
       <div class="brand">
-        <img class="brand-mark" src="icon-192.png" width="40" height="40" alt="" aria-hidden="true">
-        <div>
+        <img class="brand-mark" src="icon-192.png" width="36" height="36" alt="" aria-hidden="true">
+        <div class="brand-text">
           <h1 class="brand-title">Yore's agent</h1>
           <p class="brand-sub" id="study-date">—</p>
         </div>
       </div>
-      <button type="button" class="chip" id="btn-quick-sync" title="拉取今日任务">同步</button>
+      <button type="button" class="icon-btn" id="btn-quick-sync" title="同步今日任务" aria-label="同步今日任务">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.3" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><path d="M21 3v6h-6" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
     </header>
 
     <main class="app-main" id="app-main">
@@ -35,19 +37,19 @@
 
     <nav class="tabbar" id="tabbar" aria-label="主导航">
       <button class="tab-item is-active" type="button" data-nav="today" aria-label="今日">
-        <span class="tab-ico" aria-hidden="true">日</span>
+        <svg class="tab-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/></svg>
         <span>今日</span>
       </button>
-      <button class="tab-item" type="button" data-nav="chat" aria-label="问答">
-        <span class="tab-ico" aria-hidden="true">问</span>
-        <span>问答</span>
-      </button>
       <button class="tab-item" type="button" data-nav="archive" aria-label="任务">
-        <span class="tab-ico" aria-hidden="true">任</span>
+        <svg class="tab-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><path d="M5 6.5 6.2 7.7 8 5.5M5 12.5 6.2 13.7 8 11.5M5 18.5 6.2 19.7 8 17.5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span>任务</span>
       </button>
+      <button class="tab-item" type="button" data-nav="chat" aria-label="问答">
+        <svg class="tab-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v6A2.5 2.5 0 0 1 16.5 15H10l-4 3.5V15H7.5A2.5 2.5 0 0 1 5 12.5v-6Z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/></svg>
+        <span>问答</span>
+      </button>
       <button class="tab-item" type="button" data-nav="settings" aria-label="设置">
-        <span class="tab-ico" aria-hidden="true">设</span>
+        <svg class="tab-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.75"/><path d="M12 3.5v2.2M12 18.3V20.5M4.9 6.4l1.6 1.5M17.5 16.1l1.6 1.5M3.5 12h2.2M18.3 12h2.2M4.9 17.6l1.6-1.5M17.5 7.9l1.6-1.5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg>
         <span>设置</span>
       </button>
     </nav>
