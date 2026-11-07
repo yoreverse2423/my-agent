@@ -18,3 +18,7 @@ android-watch/local.properties
 android-watch/*.apk
 android-watch/**/*.apk
 android-watch/.idea/
+
+# APK deferred until web verified
+downloads/*.apk
+downloads/*.apk.sha256

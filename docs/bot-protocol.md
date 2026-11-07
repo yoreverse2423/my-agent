@@ -2,8 +2,10 @@
 
 给学生端（网页 / 手表 APK）看的任务与存档镜像。完整备考约定仍以 `/workspace/gaokao/protocol.md` 为准；`gaokao/daily/` 可继续保留，StudyHub 是**学生可读的 JSON 镜像**。
 
-仓库：`yoreverse2423/StudyHub`  
-Pages：`https://yoreverse2423.github.io/StudyHub/`
+仓库：`yoreverse2423/my-agent`  
+Pages：`https://yoreverse2423.github.io/my-agent/`
+
+仓库内样例 `daily-tasks.json` 带 `demo: true` / 【演示】标题，**不是真实作业**；正式任务由监工头bot 写入并去掉演示标记。
 
 ## 角色
 
@@ -77,7 +79,7 @@ Pages：`https://yoreverse2423.github.io/StudyHub/`
 }
 ```
 
-Bot **不要和学生抢写**：读完分析即可。上传冲突策略在学生端：先 GET，按 `date` 合并，同日字段本地优先，再 PUT。保留约 30 天。
+Bot **不要和学生抢写**：读完分析即可。上传冲突策略在学生端：先 GET 远程，按 `date` 合并后再 PUT——`completedTaskIds` 取并集；`chatSummary` 按 `(at|q)` 去重合并；`weakTopics` 合并去重；`notes` 两侧都有且不同时按 `本地 + "\n---\n" + 远程` 拼接（本地在前）；`minutesSpent` 取较大值。PUT 遇 409 会重新 GET 合并再试，最多 2 次，不盲覆盖。保留约 30 天。
 
 ### 监工头bot 读存档后建议流程
 

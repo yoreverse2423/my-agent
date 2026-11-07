@@ -12,13 +12,13 @@
   var STORAGE_NOTES = 'studyhub_day_notes_v1';
 
   var DEFAULT_OWNER = 'yoreverse2423';
-  var DEFAULT_REPO = 'StudyHub';
+  var DEFAULT_REPO = 'my-agent';
   var TASKS_PATH = 'data/daily-tasks.json';
   var ARCHIVE_PATH = 'data/student-archive.json';
   var DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/chat/completions';
   var DEEPSEEK_MODELS = ['deepseek-chat', 'deepseek-reasoner'];
   var APK_URL = 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk';
-  var PAGES_BASE = 'https://yoreverse2423.github.io/StudyHub/';
+  var PAGES_BASE = 'https://yoreverse2423.github.io/my-agent/';
 
   var SUBJECTS = ['综合', '数学', '英语', '物理', '化学', '语文', '地理'];
 
@@ -143,7 +143,7 @@
   function saveArchive() {
     state.archive.updatedAt = isoShanghai();
     // keep ~30 days
-    if (state.archive.days && state.archive.days.length > 40) {
+    if (state.archive.days && state.archive.days.length > 30) {
       state.archive.days = state.archive.days
         .slice()
         .sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); })
@@ -279,12 +279,12 @@
         map[d.date] = JSON.parse(JSON.stringify(d));
         return;
       }
-      // same date: local fields preferred
+      // same date: union lists, concatenate distinct notes (local first), max minutes
       map[d.date] = {
         date: d.date,
         completedTaskIds: uniqueStrings([].concat(r.completedTaskIds || [], d.completedTaskIds || [])),
-        notes: d.notes || r.notes || '',
-        weakTopics: (d.weakTopics && d.weakTopics.length) ? d.weakTopics : (r.weakTopics || []),
+        notes: mergeNotes(d.notes, r.notes),
+        weakTopics: mergeWeakTopics(r.weakTopics || [], d.weakTopics || []),
         chatSummary: mergeChatSummary(r.chatSummary || [], d.chatSummary || []),
         minutesSpent: Math.max(Number(r.minutesSpent) || 0, Number(d.minutesSpent) || 0)
       };
@@ -306,6 +306,32 @@
       if (!s || seen[s]) return;
       seen[s] = 1;
       out.push(s);
+    });
+    return out;
+  }
+
+  function mergeNotes(localNotes, remoteNotes) {
+    var local = String(localNotes == null ? '' : localNotes).trim();
+    var remote = String(remoteNotes == null ? '' : remoteNotes).trim();
+    if (!local) return remote;
+    if (!remote) return local;
+    if (local === remote) return local;
+    // keep both sides so a multi-device merge never drops text
+    return local + '\n---\n' + remote;
+  }
+
+  function mergeWeakTopics(a, b) {
+    var seen = {};
+    var out = [];
+    a.concat(b).forEach(function (w) {
+      if (w == null) return;
+      var key = typeof w === 'string'
+        ? w
+        : [w.subject || '', w.topic || '', w.detail || ''].join('|');
+      key = String(key).trim();
+      if (!key || seen[key]) return;
+      seen[key] = 1;
+      out.push(w);
     });
     return out;
   }
@@ -343,10 +369,11 @@
     });
   }
 
-  function pushArchive() {
+  function pushArchive(attempt) {
+    attempt = attempt || 0;
     var token = ghToken();
     if (!token) return Promise.reject(new Error('请先在设置里保存 GitHub Token'));
-    // GET remote → merge → PUT
+    // Always GET remote → merge → PUT; never blind-overwrite another device's changes.
     return githubContents('GET', ARCHIVE_PATH, token).then(function (got) {
       var sha = '';
       var remote = emptyArchive();
@@ -369,8 +396,9 @@
       return githubContents('PUT', ARCHIVE_PATH, token, body).then(function (put) {
         if (put.ok) return merged;
         if (put.status === 409) {
-          // retry once
-          return pushArchive();
+          // remote moved under us: re-GET + re-merge, retry at most twice
+          if (attempt < 2) return pushArchive(attempt + 1);
+          throw new Error('上传冲突：合并重试 2 次后仍失败（HTTP 409）');
         }
         throw new Error('上传失败 HTTP ' + put.status + (put.data && put.data.message ? '：' + put.data.message : ''));
       });
@@ -720,7 +748,7 @@
     root.innerHTML =
       '<section class="card">' +
         '<h2 class="card-title">存档同步</h2>' +
-        '<p class="muted">任务只下载；学习存档可上传。冲突时按日期合并，同日字段本地优先。</p>' +
+        '<p class="muted">任务只下载；学习存档可上传。冲突时先拉取远程按日期合并：完成项/摘要取并集，备注两侧保留，分钟取较大值。</p>' +
         '<div class="btn-row">' +
           '<button type="button" class="btn" id="btn-pull-tasks">拉取任务</button>' +
           '<button type="button" class="btn ghost" id="btn-pull-archive">拉取存档</button>' +
@@ -774,7 +802,7 @@
     root.innerHTML =
       '<section class="card">' +
         '<h2 class="card-title">GitHub 同步</h2>' +
-        '<p class="muted">Token 只存本机 localStorage，不会进仓库。需要 Contents 读写权限。</p>' +
+        '<p class="muted">默认仓库 <code>yoreverse2423/my-agent</code>。Token 只存本机 localStorage，不会进仓库。需要 Contents 读写权限。</p>' +
         '<div class="field"><label>Owner</label><input id="gh-owner" value="' + escapeAttr(prefs.owner) + '"></div>' +
         '<div class="field"><label>Repo</label><input id="gh-repo" value="' + escapeAttr(prefs.repo) + '"></div>' +
         '<div class="field"><label>Personal Access Token</label>' +
@@ -819,7 +847,7 @@
 
       '<section class="card">' +
         '<h2 class="card-title">关于</h2>' +
-        '<p class="muted">小学习机 StudyHub v0.1.0 · 与监工头bot / 科目 bot 通过仓库 JSON 协作。协议见 docs/bot-protocol.md。</p>' +
+        '<p class="muted">小学习机 StudyHub v0.1.0 · 默认仓库 <code>yoreverse2423/my-agent</code> · 与监工头bot / 科目 bot 通过仓库 JSON 协作。协议见 docs/bot-protocol.md。</p>' +
       '</section>';
 
     $('btn-save-gh').addEventListener('click', function () {
