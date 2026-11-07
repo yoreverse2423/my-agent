@@ -1,2 +1,4 @@
-Source: agent attachment b1a5386b768057f3cd877c3d04699dd5f8ef87c8928cd136385f689422e4fd17.jpg
-Note: requested hash 3a938d4a…ff4.jpg was not on disk; used the character portrait in the same attachments store.
+Source (authoritative): /home/box/agent-data/agents/4bfaf606-d19a-4661-b692-af57e62ec99f/attachments/3a938d4a0b5b0ea2cf31ac0df87c195a9e5202a4442016b280a43a7150589ff4.jpg
+Local copy: icons/source-3a938d4a.jpg (515709 bytes)
+Subject: yellow/blonde curly hair, green garden background. Face-centered square crop.
+Replaces incorrect teal-hair substitute used in 0.2.0.
