@@ -21,7 +21,7 @@
   var DEEPSEEK_MODELS = ['deepseek-chat', 'deepseek-reasoner'];
   var PAGES_BASE = 'https://yoreverse2423.github.io/my-agent/';
   var APK_URL = 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk';
-  var APK_VERSION = '0.3.0';
+  var APK_VERSION = '0.3.1';
   var AUTO_UPLOAD_GAP_MS = 5 * 60 * 1000;
   var AUTO_UPLOAD_TICK_MS = 20 * 1000;
   var BRAND_NAME = "Yore's agent";
@@ -915,48 +915,15 @@
     });
     var total = tasks.length;
     var pct = total ? Math.round((doneN / total) * 100) : 0;
-    var pending = tasks.filter(function (t) {
-      return (day.completedTaskIds || []).indexOf(t.id) === -1;
-    });
-    var focus = pending.slice(0, 3);
-    if (!focus.length) focus = tasks.slice(0, 3);
-
-    var focusHtml;
-    if (!tasks.length) {
-      focusHtml = '<div class="empty">今天还没有任务。点右上角同步，或到「任务」页查看缓存。</div>';
-    } else {
-      focusHtml = focus.map(function (t) {
-        var done = (day.completedTaskIds || []).indexOf(t.id) !== -1;
-        return taskRowHtml(t, done);
-      }).join('');
-    }
 
     root.innerHTML =
-      '<section class="hero">' +
-        '<img class="hero-portrait" src="hero-portrait.png" width="72" height="72" alt="Yore" loading="lazy">' +
-        '<div>' +
-          '<p class="hero-kicker">TODAY</p>' +
-          '<h2 class="hero-title">今日重点</h2>' +
-          '<p class="hero-sub">学习日 ' + escapeHtml(date) + ' · 凌晨 4 点换日</p>' +
-        '</div>' +
-      '</section>' +
-
       '<section class="panel">' +
-        '<div class="panel-head"><h2 class="panel-title">完成度</h2><span class="panel-meta">' + doneN + ' / ' + total + '</span></div>' +
+        '<div class="panel-head"><h2 class="panel-title">今日进度</h2><span class="panel-meta">' + doneN + ' / ' + total + '</span></div>' +
         '<div class="progress-row">' +
           '<div class="progress-track" aria-hidden="true"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
           '<div class="progress-label">' + pct + '%</div>' +
         '</div>' +
-        '<div class="action-row">' +
-          '<button type="button" class="btn" id="btn-go-chat">' + svgIcon('ask') + '继续提问</button>' +
-          '<button type="button" class="btn secondary" id="btn-go-tasks">' + svgIcon('tasks') + '全部任务</button>' +
-        '</div>' +
-      '</section>' +
-
-      '<section class="panel">' +
-        '<div class="panel-head"><h2 class="panel-title">今日任务</h2><span class="panel-meta">' + (pending.length ? ('待办 ' + pending.length) : (total ? '已全部完成' : '暂无')) + '</span></div>' +
-        focusHtml +
-        (tasks.length > focus.length ? '<p class="muted" style="margin-top:8px">首页只展示重点几项，完整列表在「任务」。</p>' : '') +
+        '<p class="muted" style="margin:8px 0 0">学习日 ' + escapeHtml(date) + '。任务列表请到「任务」页查看与勾选。</p>' +
       '</section>' +
 
       '<section class="panel">' +
@@ -966,11 +933,6 @@
         '<div class="btn-row"><button type="button" class="btn secondary" id="btn-save-notes">保存备注</button></div>' +
       '</section>';
 
-    bindTaskChecks(root, function () { return studyDate(); }, function () { renderToday(); });
-    var goChat = $('btn-go-chat');
-    if (goChat) goChat.addEventListener('click', function () { setView('chat'); });
-    var goTasks = $('btn-go-tasks');
-    if (goTasks) goTasks.addEventListener('click', function () { setView('archive'); });
     var btn = $('btn-save-notes');
     if (btn) {
       btn.addEventListener('click', function () {

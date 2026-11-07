@@ -102,6 +102,17 @@ a { color: var(--gold-deep); }
 .icon-btn .ico { width: 18px; height: 18px; }
 .icon-btn:active { background: var(--gold-soft); }
 
+.chip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  color: var(--gold-deep);
+  font-size: 13px;
+  font-weight: 650;
+}
+.chip:active { background: var(--gold-soft); }
+
 .app-main { flex: 1; padding: 4px 14px 12px; min-height: 0; }
 .view { display: block; }
 .app.is-chat .app-main {
