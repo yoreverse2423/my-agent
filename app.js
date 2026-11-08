@@ -21,7 +21,7 @@
   var DEEPSEEK_MODELS = ['deepseek-chat', 'deepseek-reasoner'];
   var PAGES_BASE = 'https://yoreverse2423.github.io/my-agent/';
   var APK_URL = 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk';
-  var APK_VERSION = '0.3.1';
+  var APK_VERSION = '0.3.2';
   var AUTO_UPLOAD_GAP_MS = 5 * 60 * 1000;
   var AUTO_UPLOAD_TICK_MS = 20 * 1000;
   var BRAND_NAME = "Yore's agent";
@@ -1036,6 +1036,7 @@
   }
 
   function onClearChatUi() {
+    if (!window.confirm('清屏只会隐藏当前界面上的对话，本机完整记录和上传内容不会删除。确定清屏吗？')) return;
     var all = ensureMsgIds(state.chat || []);
     var last = all.length ? all[all.length - 1] : null;
     state.chatUi = { clearedBeforeId: last ? last.id : '' };
@@ -1163,24 +1164,29 @@
     var eyeOpenSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
     var eyeOffSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
 
-    function setVisible(visible) {
-      input.type = visible ? 'text' : 'password';
-      if (eye) {
-        var label = visible ? '隐藏密码' : '显示密码';
-        eye.setAttribute('title', label);
-        eye.setAttribute('aria-label', label);
-        eye.setAttribute('aria-pressed', visible ? 'true' : 'false');
-        eye.innerHTML = visible ? eyeOffSvg : eyeOpenSvg;
-      }
+    // 眼睛按钮标准逻辑，以 input.type 为唯一依据（不依赖易混的 visible 布尔）：
+    // - password（密文隐藏）→ 睁眼图标 +「显示密码」+ aria-pressed=false
+    // - text（明文可见）    → 划线眼图标 +「隐藏密码」+ aria-pressed=true
+    function syncEye() {
+      if (!eye) return;
+      var hidden = input.type === 'password';
+      var label = hidden ? '显示密码' : '隐藏密码';
+      eye.innerHTML = hidden ? eyeOpenSvg : eyeOffSvg;
+      eye.setAttribute('title', label);
+      eye.setAttribute('aria-label', label);
+      eye.setAttribute('aria-pressed', hidden ? 'false' : 'true');
     }
 
     if (eye) {
       eye.addEventListener('click', function (ev) {
       if (ev && ev.stopPropagation) ev.stopPropagation();
       if (ev && ev.preventDefault) ev.preventDefault();
-        setVisible(input.type === 'password');
+        // 先切换 type，再根据切换后的 type 更新图标与文案
+        input.type = input.type === 'password' ? 'text' : 'password';
+        syncEye();
       });
     }
+    syncEye();
 
     if (copy) {
       copy.addEventListener('click', function (ev) {
@@ -1301,6 +1307,7 @@
       renderSettings();
     });
     $('btn-clear-gh').addEventListener('click', function () {
+      if (!window.confirm('确定清除本机保存的 GitHub 令牌吗？仓库里的文件不会被删。')) return;
       lsSetStr(STORAGE_GH_TOKEN, '');
       toast('令牌已清除');
       renderSettings();
@@ -1313,6 +1320,7 @@
       renderSettings();
     });
     $('btn-clear-ds').addEventListener('click', function () {
+      if (!window.confirm('确定清除本机保存的 DeepSeek API Key 吗？')) return;
       lsSetStr(STORAGE_DS_KEY, '');
       toast('Key 已清除');
       renderSettings();
