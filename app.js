@@ -21,7 +21,7 @@
   var DEEPSEEK_MODELS = ['deepseek-chat', 'deepseek-reasoner'];
   var PAGES_BASE = 'https://yoreverse2423.github.io/my-agent/';
   var APK_URL = 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk';
-  var APK_VERSION = '0.3.2';
+  var APK_VERSION = '0.3.3';
   var AUTO_UPLOAD_GAP_MS = 5 * 60 * 1000;
   var AUTO_UPLOAD_TICK_MS = 20 * 1000;
   var BRAND_NAME = "Yore's agent";
@@ -60,9 +60,10 @@
     return '<svg class="' + c + '" viewBox="0 0 24 24" aria-hidden="true">' + (paths[name] || '') + '</svg>';
   }
 
-  function taskRowHtml(t, done) {
-    var html = '<div class="task' + (done ? ' is-done' : '') + '" data-task-id="' + escapeAttr(t.id) + '">';
-    html += '<input class="task-check" type="checkbox" ' + (done ? 'checked' : '') + ' aria-label="完成">';
+  function taskRowHtml(t, done, opts) {
+    var checkable = !opts || opts.checkable !== false;
+    var html = '<div class="task' + (done ? ' is-done' : '') + (checkable ? '' : ' is-readonly') + '" data-task-id="' + escapeAttr(t.id) + '">';
+    if (checkable) html += '<input class="task-check" type="checkbox" ' + (done ? 'checked' : '') + ' aria-label="完成">';
     html += '<div>';
     html += '<div class="task-meta"><span class="dot ' + subjectClass(t.subject) + '"></span>';
     html += '<span>' + escapeHtml(t.subject || '') + '</span>';
@@ -915,6 +916,12 @@
     });
     var total = tasks.length;
     var pct = total ? Math.round((doneN / total) * 100) : 0;
+    var doneIds = day.completedTaskIds || [];
+    var taskRows = tasks.map(function (t) {
+      return taskRowHtml(t, doneIds.indexOf(t.id) !== -1);
+    }).join('');
+    var notesEl = $('day-notes');
+    var notesDraft = notesEl ? notesEl.value : null;
 
     root.innerHTML =
       '<section class="panel">' +
@@ -923,7 +930,12 @@
           '<div class="progress-track" aria-hidden="true"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
           '<div class="progress-label">' + pct + '%</div>' +
         '</div>' +
-        '<p class="muted" style="margin:8px 0 0">学习日 ' + escapeHtml(date) + '。任务列表请到「任务」页查看与勾选。</p>' +
+        '<p class="muted" style="margin:8px 0 0">学习日 ' + escapeHtml(date) + '。勾选下方任务即可完成。</p>' +
+      '</section>' +
+
+      '<section class="panel">' +
+        '<div class="panel-head"><h2 class="panel-title">今日任务</h2><span class="panel-meta">' + doneN + ' / ' + total + '</span></div>' +
+        (total ? taskRows : '<div class="empty">今天还没有任务。点右上角同步，或到设置里拉取任务。</div>') +
       '</section>' +
 
       '<section class="panel">' +
@@ -932,6 +944,10 @@
           escapeHtml(day.notes || '') + '</textarea></div>' +
         '<div class="btn-row"><button type="button" class="btn secondary" id="btn-save-notes">保存备注</button></div>' +
       '</section>';
+
+    if (notesDraft !== null && $('day-notes')) $('day-notes').value = notesDraft;
+
+    bindTaskChecks(root, function () { return studyDate(); }, function () { renderToday(); });
 
     var btn = $('btn-save-notes');
     if (btn) {
@@ -1121,7 +1137,7 @@
       });
       body = order.map(function (g) {
         var rows = groups[g].map(function (t) {
-          return taskRowHtml(t, completed.indexOf(t.id) !== -1);
+          return taskRowHtml(t, completed.indexOf(t.id) !== -1, { checkable: false });
         }).join('');
         return '<div class="group-label">' + escapeHtml(g) + ' · ' + groups[g].length + '</div>' + rows;
       }).join('');
@@ -1132,7 +1148,7 @@
     root.innerHTML =
       '<section class="panel">' +
         '<div class="panel-head"><h2 class="panel-title">每日任务</h2><span class="panel-meta">' + doneN + '/' + tasks.length + ' 完成</span></div>' +
-        '<p class="muted" style="margin:0 0 8px">按日期浏览 bot 下发的任务（不含答案）。</p>' +
+        '<p class="muted" style="margin:0 0 8px">按日期浏览（不含答案）；完成勾选请回首页。</p>' +
         '<div class="date-chips" id="tasks-date-chips">' + chips + '</div>' +
         body +
       '</section>';
@@ -1143,7 +1159,6 @@
         renderArchive();
       });
     });
-    bindTaskChecks(root, function () { return state.tasksBrowseDate || studyDate(); }, function () { renderArchive(); });
   }
 
   function secretFieldHtml(id, placeholder) {

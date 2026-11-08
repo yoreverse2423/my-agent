@@ -196,6 +196,7 @@ a { color: var(--gold-deep); }
 }
 .task:first-of-type { border-top: 0; padding-top: 2px; }
 .task-check { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--gold); }
+.task.is-readonly { grid-template-columns: 1fr; }
 .task-meta {
   display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
   margin-bottom: 3px; font-size: 11px; color: var(--muted); font-weight: 600;
