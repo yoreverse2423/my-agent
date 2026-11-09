@@ -69,6 +69,18 @@
     s = s.replace(/\*\*([^\*\n]+?)\*\*/g, '<strong>$1</strong>');
     s = s.replace(/(^|[^\*])\*([^\*\n]+?)\*/g, '$1<em>$2</em>');
 
+    // Bare https URLs (search sources) become links; input is already escaped.
+    s = s.replace(/https?:\/\/[^\s<>"']+/g, function (url) {
+      var trail = '';
+      var tm = url.match(/[.,;:!?，。；：！？、]+$/);
+      if (tm) {
+        trail = tm[0];
+        url = url.slice(0, -trail.length);
+      }
+      if (!/^https?:\/\//i.test(url)) return url + trail;
+      return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + url + '</a>' + trail;
+    });
+
     s = s.replace(/\u0001CODE(\d+)\u0001/g, function (m, i) {
       return codes[parseInt(i, 10)];
     });

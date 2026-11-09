@@ -28,7 +28,6 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -51,6 +50,8 @@ public class MainActivity extends Activity {
     private static final String START_URL = "file:///android_asset/www/index.html";
     private static final String DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
     private static final int FILE_CHOOSER_REQUEST = 4107;
+    private static final int HTTP_TIMEOUT_MS = 18000;
+    private static final int HTTP_MAX_CHARS = 700000;
 
     static {
         try {
@@ -304,7 +305,25 @@ public class MainActivity extends Activity {
                 }
                 final String errFinal = err;
                 final String resultFinal = resultJson;
-                mainHandler.post(() -> deliverDeepseek(cb, errFinal, resultFinal));
+                mainHandler.post(() -> deliverCallback(cb, errFinal, resultFinal));
+            });
+        }
+
+        /** Plain https GET for search providers (Bing HTML) so WebView CORS doesn't block it. */
+        @JavascriptInterface
+        public void httpGet(String requestId, String callbackName, String url) {
+            final String cb = sanitizeCallback(callbackName);
+            netExecutor.execute(() -> {
+                String err = null;
+                String result = null;
+                try {
+                    result = getText(url);
+                } catch (Throwable t) {
+                    err = t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
+                }
+                final String errFinal = err;
+                final String resultFinal = result;
+                mainHandler.post(() -> deliverCallback(cb, errFinal, resultFinal));
             });
         }
 
@@ -327,30 +346,63 @@ public class MainActivity extends Activity {
         return sb.toString();
     }
 
-    private void deliverDeepseek(String callbackName, String err, String resultJson) {
+    private void deliverCallback(String callbackName, String err, String resultJson) {
         if (webView == null || callbackName == null || callbackName.isEmpty()) return;
         try {
-            JSONArray args = new JSONArray();
-            if (err != null) {
-                args.put(err);
-                args.put(JSONObject.NULL);
-            } else {
-                args.put(JSONObject.NULL);
-                args.put(resultJson == null ? "" : resultJson);
-            }
-            String js = "(function(){try{var fn=window[" + JSONObject.quote(callbackName) + "];"
-                    + "if(typeof fn==='function'){fn(" + args.get(0) + ","
-                    + (err != null ? "null" : JSONObject.quote(resultJson == null ? "" : resultJson))
-                    + ");}}catch(e){console.error(e);}})();";
-            // Simpler explicit form:
             String errLit = err == null ? "null" : JSONObject.quote(err);
             String dataLit = err != null ? "null" : JSONObject.quote(resultJson == null ? "" : resultJson);
-            js = "(function(){try{var fn=window[" + JSONObject.quote(callbackName) + "];"
+            String js = "(function(){try{var fn=window[" + JSONObject.quote(callbackName) + "];"
                     + "if(typeof fn==='function')fn(" + errLit + "," + dataLit + ");"
                     + "}catch(e){console.error(e);}})();";
             webView.evaluateJavascript(js, null);
         } catch (Throwable ignored) {
         }
+    }
+
+    private String getText(String rawUrl) throws Exception {
+        String url = rawUrl == null ? "" : rawUrl.trim();
+        if (url.isEmpty()) throw new IllegalArgumentException("缺少 url");
+        URL parsed = new URL(url);
+        if (!"https".equalsIgnoreCase(parsed.getProtocol())) {
+            throw new IllegalArgumentException("只允许 https");
+        }
+        HttpURLConnection conn = (HttpURLConnection) parsed.openConnection();
+        conn.setConnectTimeout(HTTP_TIMEOUT_MS);
+        conn.setReadTimeout(HTTP_TIMEOUT_MS);
+        conn.setRequestMethod("GET");
+        conn.setInstanceFollowRedirects(true);
+        // Desktop Chrome UA: Bing mobile HTML often omits real titles; desktop still returns h2 titles.
+        conn.setRequestProperty("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                        + "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
+        conn.setRequestProperty("Accept", "text/html,application/json;q=0.9,*/*;q=0.8");
+        conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6");
+
+        int code = conn.getResponseCode();
+        // HttpURLConnection may follow redirects; only https targets are allowed.
+        URL finalUrl = conn.getURL();
+        if (finalUrl == null || !"https".equalsIgnoreCase(finalUrl.getProtocol())) {
+            throw new IllegalArgumentException("只允许 https");
+        }
+        InputStream stream = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+        String body = readText(stream, HTTP_MAX_CHARS);
+        if (code >= 400) throw new IllegalStateException("HTTP " + code);
+        return body;
+    }
+
+    private static String readText(InputStream stream, int maxChars) throws Exception {
+        if (stream == null) return "";
+        StringBuilder sb = new StringBuilder();
+        try (BufferedReader br = new BufferedReader(
+                new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                sb.append(line).append('\n');
+                if (sb.length() >= maxChars) break;
+            }
+        }
+        if (sb.length() > maxChars) sb.setLength(maxChars);
+        return sb.toString();
     }
 
     private String postDeepseek(String jsonBody) throws Exception {
@@ -360,7 +412,7 @@ public class MainActivity extends Activity {
             throw new IllegalArgumentException("缺少 apiKey");
         }
         JSONObject outbound = new JSONObject();
-        outbound.put("model", incoming.optString("model", "deepseek-chat"));
+        outbound.put("model", incoming.optString("model", "deepseek-flash"));
         outbound.put("messages", incoming.getJSONArray("messages"));
         if (incoming.has("temperature") && !incoming.isNull("temperature")) {
             outbound.put("temperature", incoming.getDouble("temperature"));

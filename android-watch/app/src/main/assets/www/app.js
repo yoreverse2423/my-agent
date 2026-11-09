@@ -10,6 +10,8 @@
   var STORAGE_GH_PREFS = 'studyhub_github_prefs';
   var STORAGE_DS_KEY = 'studyhub_deepseek_key';
   var STORAGE_DS_PREFS = 'studyhub_deepseek_prefs';
+  var STORAGE_BOCHA_KEY = 'studyhub_bocha_key';
+  var STORAGE_TAVILY_KEY = 'studyhub_tavily_key';
   var STORAGE_NOTES = 'studyhub_day_notes_v1';
   var STORAGE_SYNC_PREFS = 'studyhub_sync_prefs_v1';
 
@@ -18,10 +20,11 @@
   var TASKS_PATH = 'data/daily-tasks.json';
   var ARCHIVE_PATH = 'data/student-archive.json';
   var DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/chat/completions';
-  var DEEPSEEK_MODELS = ['deepseek-chat', 'deepseek-reasoner'];
+  var DEEPSEEK_MODELS = ['deepseek-flash', 'deepseek-chat', 'deepseek-reasoner'];
+  var DEFAULT_DEEPSEEK_MODEL = 'deepseek-flash';
   var PAGES_BASE = 'https://yoreverse2423.github.io/my-agent/';
   var APK_URL = 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk';
-  var APK_VERSION = '0.3.3';
+  var APK_VERSION = '0.3.4';
   var AUTO_UPLOAD_GAP_MS = 5 * 60 * 1000;
   var AUTO_UPLOAD_TICK_MS = 20 * 1000;
   var BRAND_NAME = "Yore's agent";
@@ -45,12 +48,16 @@
   };
 
   var ASK_TIMEOUT_MS = 90000;
+  var ASK_SEARCH_TIMEOUT_MS = 150000;
+  var SEARCH_TIMEOUT_MS = 18000;
+  var SEARCH_MAX_RESULTS = 6;
 
   function svgIcon(name, cls) {
     var c = cls || 'ico';
     var paths = {
       sync: '<path d="M21 12a9 9 0 1 1-2.6-6.3" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><path d="M21 3v6h-6" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
       ask: '<path d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v6A2.5 2.5 0 0 1 16.5 15H10l-4 3.5V15H7.5A2.5 2.5 0 0 1 5 12.5v-6Z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/>',
+      search: '<circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="1.85"/><path d="m16 16 4 4" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round"/>',
       tasks: '<path d="M9 6h11M9 12h11M9 18h11" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><path d="M5 6.5 6.2 7.7 8 5.5M5 12.5 6.2 13.7 8 11.5M5 18.5 6.2 19.7 8 17.5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
       clear: '<path d="M7 7l10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round"/>',
       send: '<path d="M5 12h12M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -742,13 +749,26 @@
 
   function dsModel() {
     var p = lsGet(STORAGE_DS_PREFS, {}) || {};
-    return DEEPSEEK_MODELS.indexOf(p.model) === -1 ? 'deepseek-chat' : p.model;
+    return DEEPSEEK_MODELS.indexOf(p.model) === -1 ? DEFAULT_DEEPSEEK_MODEL : p.model;
   }
 
   function saveDsPrefs(extra) {
     var p = lsGet(STORAGE_DS_PREFS, {}) || {};
     Object.keys(extra || {}).forEach(function (k) { p[k] = extra[k]; });
     lsSet(STORAGE_DS_PREFS, p);
+  }
+
+  function searchEnabled() {
+    var p = lsGet(STORAGE_DS_PREFS, {}) || {};
+    return !!p.searchEnabled;
+  }
+
+  function bochaKey() {
+    return normalizeToken(lsGetStr(STORAGE_BOCHA_KEY));
+  }
+
+  function tavilyKey() {
+    return normalizeToken(lsGetStr(STORAGE_TAVILY_KEY));
   }
 
   function systemPrompt(subject) {
@@ -839,18 +859,48 @@
     });
   }
 
-  function askDeepseek(question, subject) {
+  function buildSearchUserContent(question, results) {
+    var list = results.map(function (r, i) {
+      return (i + 1) + '. 标题：' + (r.title || '') +
+        '\n   摘要：' + (r.snippet || '（无摘要）') +
+        '\n   链接：' + (r.url || '');
+    }).join('\n');
+    return '学生问题：' + question + '\n\n' +
+      '下面是我刚检索到的网页资料（可能有噪声或不完整）：\n' + list + '\n\n' +
+      '请优先结合资料、再结合你的知识认真作答。引用资料时在句末用 [1] 这样的编号标注；' +
+      '不要在正文里罗列完整链接，来源会在回答末尾统一附上。';
+  }
+
+  function appendSearchSources(content, results) {
+    var lines = results.map(function (r, i) {
+      return (i + 1) + '. ' + (r.title || '来源') + ' — ' + (r.url || '');
+    });
+    return String(content == null ? '' : content).replace(/\s+$/, '') +
+      '\n\n参考来源：\n' + lines.join('\n');
+  }
+
+  function appendNoSourceNote(content) {
+    return String(content == null ? '' : content).replace(/\s+$/, '') +
+      '\n\n（未检索到网页来源，以上为模型直接回答。）';
+  }
+
+  function askDeepseek(question, subject, searchResults) {
     var key = dsKey();
     if (!key) return Promise.reject(new Error('请先在设置里填写 DeepSeek API Key'));
     var model = dsModel();
+    var searched = Array.isArray(searchResults);
+    var results = searched ? searchResults : [];
     var bodyObj = {
       model: model,
       messages: [
         { role: 'system', content: systemPrompt(subject) },
-        { role: 'user', content: question }
+        {
+          role: 'user',
+          content: results.length ? buildSearchUserContent(question, results) : question
+        }
       ]
     };
-    if (model !== 'deepseek-reasoner') bodyObj.temperature = 0.4;
+    if (model !== 'deepseek-reasoner') bodyObj.temperature = results.length ? 0.3 : 0.4;
 
     var runner;
     if (hasNativeDeepseek()) {
@@ -871,8 +921,331 @@
         ? data.choices[0].message.content
         : '';
       if (!content) throw new Error('DeepSeek 没有返回内容');
-      return String(content);
+      content = String(content);
+      if (results.length) return appendSearchSources(content, results);
+      if (searched) return appendNoSourceNote(content);
+      return content;
     });
+  }
+
+  /* ---------- web search ---------- */
+
+  function hasNativeHttpGet() {
+    return !!(window.StudyHubNative && typeof window.StudyHubNative.httpGet === 'function');
+  }
+
+  function nativeHttpGet(url) {
+    return new Promise(function (resolve, reject) {
+      var id = 'hg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      var cb = '__studyhub_hg_cb_' + id;
+      var timeout = setTimeout(function () {
+        cleanup();
+        reject(new Error('原生联网请求超时'));
+      }, SEARCH_TIMEOUT_MS + 5000);
+      function cleanup() {
+        clearTimeout(timeout);
+        try { delete window[cb]; } catch (e) { window[cb] = undefined; }
+      }
+      window[cb] = function (err, text) {
+        cleanup();
+        if (err) {
+          reject(new Error(String(err)));
+          return;
+        }
+        resolve(String(text == null ? '' : text));
+      };
+      try {
+        window.StudyHubNative.httpGet(id, cb, url);
+      } catch (e) {
+        cleanup();
+        reject(e);
+      }
+    });
+  }
+
+  function httpFetch(url, opts, timeoutMs) {
+    if (typeof fetch !== 'function') return Promise.reject(new Error('当前环境不支持联网'));
+    var o = {};
+    Object.keys(opts || {}).forEach(function (k) { o[k] = opts[k]; });
+    var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = null;
+    if (controller) {
+      o.signal = controller.signal;
+      timer = setTimeout(function () {
+        try { controller.abort(); } catch (e) {}
+      }, timeoutMs || SEARCH_TIMEOUT_MS);
+    }
+    return fetch(url, o).then(function (res) {
+      if (timer) clearTimeout(timer);
+      return res;
+    }, function (err) {
+      if (timer) clearTimeout(timer);
+      if (err && err.name === 'AbortError') throw new Error('联网请求超时');
+      throw err;
+    });
+  }
+
+  function decodeEntities(s) {
+    return String(s == null ? '' : s)
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/&#x([0-9a-f]+);/gi, function (m, hex) {
+        try { return String.fromCharCode(parseInt(hex, 16)); } catch (e) { return ''; }
+      })
+      .replace(/&#(\d+);/g, function (m, dec) {
+        try { return String.fromCharCode(parseInt(dec, 10)); } catch (e) { return ''; }
+      })
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function unwrapBingUrl(raw) {
+    var url = String(raw || '').trim().replace(/&amp;/g, '&');
+    if (/^\/\//.test(url)) url = 'https:' + url;
+    else if (/^\//.test(url)) url = 'https://www.bing.com' + url;
+    if (!/^https?:\/\//i.test(url)) return '';
+    var m = url.match(/[?&]u=a1([^&]+)/);
+    if (m) {
+      try {
+        var b64 = decodeURIComponent(m[1]).replace(/-/g, '+').replace(/_/g, '/');
+        while (b64.length % 4) b64 += '=';
+        var decoded = atob(b64);
+        if (/^https?:\/\//i.test(decoded)) return decoded;
+      } catch (e) {}
+    }
+    // Keep Bing redirect links as last resort so users can still open the result.
+    return url;
+  }
+
+  function looksLikeBingJunkTitle(title) {
+    var t = String(title || '').trim();
+    if (!t) return true;
+    if (/^了解更多|更多结果|相关搜索|广告|Ad\b/i.test(t)) return true;
+    if (/^[a-z0-9.-]+\.[a-z]{2,}(\s|$)/i.test(t) && t.length < 40) return true;
+    return false;
+  }
+
+  function parseBingHtml(html) {
+    var chunks = String(html || '').split(/<li[^>]*class="[^"]*\bb_algo\b[^"]*"[^>]*>/i);
+    chunks.shift();
+    var out = [];
+    for (var i = 0; i < chunks.length && out.length < SEARCH_MAX_RESULTS; i++) {
+      var block = chunks[i];
+      var title = '';
+      var url = '';
+      var h2 = block.match(/<h2[^>]*>[\s\S]*?<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+      if (h2) {
+        title = decodeEntities(h2[2]);
+        url = unwrapBingUrl(h2[1]);
+      }
+      if (!url || looksLikeBingJunkTitle(title)) {
+        var cite = block.match(/<cite[^>]*>([\s\S]*?)<\/cite>/i);
+        var citeText = cite ? decodeEntities(cite[1]).replace(/\s*[›>]\s*.*$/, '').trim() : '';
+        if (citeText && /^https?:\/\//i.test(citeText)) url = url || citeText;
+        else if (citeText && /^[\w.-]+\.[a-z]{2,}/i.test(citeText)) url = url || ('https://' + citeText.split(/\s+/)[0]);
+      }
+      if (looksLikeBingJunkTitle(title)) {
+        var p0 = block.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+        if (p0) {
+          var snip0 = decodeEntities(p0[1]);
+          if (snip0) title = snip0.slice(0, 48) + (snip0.length > 48 ? '…' : '');
+        }
+      }
+      if (!url || !title) continue;
+      if (/bing\.com\/(search|account|images|videos|maps)/i.test(url)) continue;
+      if (/support\.microsoft\.com/i.test(url)) continue;
+      var p = block.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+      out.push({
+        title: title,
+        url: url,
+        snippet: p ? decodeEntities(p[1]) : '',
+        source: 'bing'
+      });
+    }
+    return out;
+  }
+
+  function fetchBingSearch(query) {
+    if (!hasNativeHttpGet()) return Promise.reject(new Error('当前环境不支持'));
+    var url = 'https://www.bing.com/search?q=' + encodeURIComponent(query) + '&setlang=zh-CN';
+    return nativeHttpGet(url).then(function (html) {
+      var results = parseBingHtml(html);
+      if (!results.length) throw new Error('页面未解析到结果（可能触发验证）');
+      return results;
+    });
+  }
+
+  function fetchWikiSearch(query) {
+    var url = 'https://zh.wikipedia.org/w/api.php?action=query&list=search' +
+      '&srsearch=' + encodeURIComponent(query) +
+      '&srlimit=' + SEARCH_MAX_RESULTS +
+      '&srprop=snippet&format=json&origin=*&utf8=1';
+    function viaFetch() {
+      return httpFetch(url, { headers: { Accept: 'application/json' } }, SEARCH_TIMEOUT_MS)
+        .then(function (res) {
+          if (!res.ok) throw new Error('维基 HTTP ' + res.status);
+          return res.json();
+        });
+    }
+    // APK: native GET avoids WebView CORS; browser: fetch with origin=* works.
+    var runner = hasNativeHttpGet()
+      ? nativeHttpGet(url).then(function (text) {
+          try { return JSON.parse(text); } catch (e) { throw new Error('维基返回无法解析'); }
+        }).catch(viaFetch)
+      : viaFetch();
+    return runner.then(function (data) {
+      var items = data && data.query && data.query.search;
+      if (!Array.isArray(items)) throw new Error('维基返回格式异常');
+      return items.map(function (it) {
+        var title = (it && it.title) || '';
+        return {
+          title: title,
+          url: title
+            ? 'https://zh.wikipedia.org/wiki/' + encodeURIComponent(title.replace(/ /g, '_'))
+            : '',
+          snippet: decodeEntities((it && it.snippet) || ''),
+          source: 'wikipedia'
+        };
+      }).filter(function (r) { return r.title && r.url; });
+    });
+  }
+
+  function fetchBochaSearch(query, key) {
+    return httpFetch('https://api.bochaai.com/v1/web-search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + key
+      },
+      body: JSON.stringify({ query: query, count: SEARCH_MAX_RESULTS, summary: true })
+    }, SEARCH_TIMEOUT_MS).then(function (res) {
+      return res.text().then(function (text) {
+        var data = null;
+        try { data = JSON.parse(text); } catch (e) {}
+        if (!res.ok) {
+          var httpMsg = data && (data.message || (data.error && data.error.message));
+          throw new Error('博查 ' + (httpMsg || ('HTTP ' + res.status)));
+        }
+        if (!data) throw new Error('博查返回无法解析');
+        if (data.code && Number(data.code) !== 200) {
+          throw new Error('博查 ' + (data.message || ('错误 ' + data.code)));
+        }
+        var pages = data.data && data.data.webPages && data.data.webPages.value;
+        if (!Array.isArray(pages)) pages = [];
+        return pages.map(function (p) {
+          return {
+            title: decodeEntities(p && p.name),
+            url: String((p && p.url) || ''),
+            snippet: decodeEntities((p && (p.summary || p.snippet)) || ''),
+            source: 'bocha'
+          };
+        }).filter(function (r) { return r.title && /^https?:\/\//i.test(r.url); });
+      });
+    });
+  }
+
+  function fetchTavilySearch(query, key) {
+    return httpFetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + key
+      },
+      body: JSON.stringify({
+        api_key: key,
+        query: query,
+        max_results: SEARCH_MAX_RESULTS,
+        search_depth: 'basic',
+        include_answer: false
+      })
+    }, SEARCH_TIMEOUT_MS).then(function (res) {
+      return res.text().then(function (text) {
+        var data = null;
+        try { data = JSON.parse(text); } catch (e) {}
+        if (!res.ok) {
+          var httpMsg = data && (data.detail || data.message);
+          throw new Error('Tavily ' + (httpMsg || ('HTTP ' + res.status)));
+        }
+        if (!data) throw new Error('Tavily 返回无法解析');
+        var items = data.results;
+        if (!Array.isArray(items)) throw new Error('Tavily 返回格式异常');
+        return items.map(function (p) {
+          return {
+            title: decodeEntities(p && p.title),
+            url: String((p && p.url) || ''),
+            snippet: decodeEntities((p && p.content) || ''),
+            source: 'tavily'
+          };
+        }).filter(function (r) { return r.title && /^https?:\/\//i.test(r.url); });
+      });
+    });
+  }
+
+  function mergeSearchResults(lists) {
+    var out = [];
+    var seen = {};
+    (lists || []).forEach(function (list) {
+      (list || []).forEach(function (r) {
+        if (!r || !r.title || !r.url) return;
+        var key = String(r.url).replace(/#.*$/, '').replace(/\/+$/, '').toLowerCase();
+        if (seen[key]) return;
+        seen[key] = 1;
+        out.push({
+          title: String(r.title).slice(0, 200),
+          url: String(r.url),
+          snippet: String(r.snippet || '').slice(0, 400),
+          source: r.source || ''
+        });
+      });
+    });
+    return out.slice(0, SEARCH_MAX_RESULTS);
+  }
+
+  function searchWeb(query) {
+    var errors = [];
+    function note(label, err) {
+      var msg = err && err.message ? err.message : String(err || '失败');
+      errors.push(label + '：' + msg);
+      return [];
+    }
+    function freeSearch() {
+      var tasks = [];
+      if (hasNativeHttpGet()) {
+        tasks.push(fetchBingSearch(query).catch(function (e) { return note('Bing', e); }));
+      }
+      tasks.push(fetchWikiSearch(query).catch(function (e) { return note('维基', e); }));
+      return Promise.all(tasks).then(function (lists) {
+        return { results: mergeSearchResults(lists), error: errors.join('；') };
+      });
+    }
+    var bKey = bochaKey();
+    var tKey = tavilyKey();
+    if (bKey) {
+      return fetchBochaSearch(query, bKey).then(function (results) {
+        if (results.length) return { results: results, error: '' };
+        errors.push('博查：无结果');
+        return freeSearch();
+      }).catch(function (e) {
+        note('博查', e);
+        return freeSearch();
+      });
+    }
+    if (tKey) {
+      return fetchTavilySearch(query, tKey).then(function (results) {
+        if (results.length) return { results: results, error: '' };
+        errors.push('Tavily：无结果');
+        return freeSearch();
+      }).catch(function (e) {
+        note('Tavily', e);
+        return freeSearch();
+      });
+    }
+    return freeSearch();
   }
 
   function briefAnswer(text) {
@@ -975,6 +1348,9 @@
       clearInterval(state.thinkingDots);
       state.thinkingDots = null;
     }
+  }
+
+  function clearAskTimer() {
     if (state.askTimer) {
       clearTimeout(state.askTimer);
       state.askTimer = null;
@@ -1020,11 +1396,20 @@
     if (state.busy) {
       log += '<div class="bubble system is-thinking" id="bubble-thinking">正在思考，等待回复<span class="dots"></span></div>';
     }
+    var searchOn = searchEnabled();
 
     root.innerHTML =
       '<div class="chat-shell">' +
         '<div class="chat-log" id="chat-log">' + log + '</div>' +
         '<div class="chat-status-bar status-line" id="chat-status"></div>' +
+        '<div class="chat-search-row">' +
+          '<button type="button" class="search-toggle' + (searchOn ? ' is-on' : '') + '" id="btn-search-toggle" aria-pressed="' + (searchOn ? 'true' : 'false') + '" title="联网搜索后再回答">' +
+            svgIcon('search') + '<span>搜索</span>' +
+          '</button>' +
+          '<span class="search-toggle-hint" id="search-toggle-hint">' +
+            (searchOn ? '先检索网页，再由 ' + escapeHtml(dsModel()) + ' 整理并附来源' : '直接问答（不联网检索）') +
+          '</span>' +
+        '</div>' +
         '<div class="chat-composer" id="chat-composer">' +
           '<button type="button" class="chat-clear-btn" id="btn-chat-clear" title="清屏（只藏界面，对话仍保留）" aria-label="清屏">' + svgIcon('clear') + '</button>' +
           '<input class="chat-input" id="chat-input" type="text" enterkeyhint="send" autocomplete="off" placeholder="把题干或疑问写在这里…">' +
@@ -1034,6 +1419,7 @@
 
     $('btn-ask').addEventListener('click', onAsk);
     $('btn-chat-clear').addEventListener('click', onClearChatUi);
+    $('btn-search-toggle').addEventListener('click', onToggleSearch);
     var input = $('chat-input');
     if (input) {
       input.addEventListener('keydown', function (ev) {
@@ -1063,24 +1449,46 @@
     renderChat();
   }
 
+  function onToggleSearch() {
+    var next = !searchEnabled();
+    saveDsPrefs({ searchEnabled: next });
+    var btn = $('btn-search-toggle');
+    var hint = $('search-toggle-hint');
+    if (btn) {
+      btn.classList.toggle('is-on', next);
+      btn.setAttribute('aria-pressed', next ? 'true' : 'false');
+    }
+    if (hint) {
+      hint.textContent = next
+        ? '先检索网页，再由 ' + dsModel() + ' 整理并附来源'
+        : '直接问答（不联网检索）';
+    }
+    toast(next ? '已开启联网搜索' : '已关闭联网搜索');
+    var input = $('chat-input');
+    if (input) input.focus();
+  }
+
   function onAsk() {
     var input = $('chat-input');
     var q = ((input && input.value) || '').trim();
     if (!q) { toast('先写问题'); return; }
     if (state.busy) return;
+    var subject = state.chatSubject || '综合';
+    var useSearch = searchEnabled();
     state.busy = true;
     if (input) input.value = '';
-    appendChatMessage({ role: 'user', content: q, subject: state.chatSubject || '综合' });
+    appendChatMessage({ role: 'user', content: q, subject: subject });
     renderChat();
-    setChatWaiting(true, '正在思考，等待 DeepSeek 回复');
+    setChatWaiting(true, useSearch ? '正在搜索' : '正在思考，等待 DeepSeek 回复');
     if ($('btn-ask')) $('btn-ask').disabled = true;
 
     var finished = false;
     function finishOk(ans) {
       if (finished) return;
       finished = true;
+      clearAskTimer();
       stopThinkingAnim();
-      appendChatMessage({ role: 'assistant', content: ans, subject: state.chatSubject || '综合' });
+      appendChatMessage({ role: 'assistant', content: ans, subject: subject });
       state.busy = false;
       renderChat();
       setStatus('chat-status', 'ok', '已回答');
@@ -1088,6 +1496,7 @@
     function finishErr(err) {
       if (finished) return;
       finished = true;
+      clearAskTimer();
       stopThinkingAnim();
       state.busy = false;
       renderChat();
@@ -1096,11 +1505,33 @@
       toast(msg);
     }
 
+    var totalMs = useSearch ? ASK_SEARCH_TIMEOUT_MS : ASK_TIMEOUT_MS;
     state.askTimer = setTimeout(function () {
-      finishErr(new Error('等待超时（' + Math.round(ASK_TIMEOUT_MS / 1000) + 's），请检查网络或稍后重试'));
-    }, ASK_TIMEOUT_MS);
+      finishErr(new Error('等待超时（' + Math.round(totalMs / 1000) + 's），请检查网络或稍后重试'));
+    }, totalMs);
 
-    askDeepseek(q, state.chatSubject || '综合').then(finishOk).catch(finishErr);
+    var searched = useSearch
+      ? searchWeb(q).catch(function (e) {
+          return { results: [], error: (e && e.message) ? e.message : String(e || '搜索失败') };
+        })
+      : Promise.resolve({ results: null, error: '' });
+
+    searched.then(function (found) {
+      if (finished) return null;
+      var results = found && Array.isArray(found.results) ? found.results : null;
+      if (useSearch) {
+        if (results && results.length) {
+          setChatWaiting(true, '正在整理');
+        } else {
+          var msg = '未检索到网页来源，正在直接作答';
+          setChatWaiting(true, msg);
+          toast(msg);
+        }
+      }
+      return askDeepseek(q, subject, results);
+    }).then(function (ans) {
+      if (ans != null) finishOk(ans);
+    }).catch(finishErr);
   }
 
   function renderArchive() {
@@ -1249,6 +1680,8 @@
     var token = ghToken();
     var key = dsKey();
     var model = dsModel();
+    var bKey = bochaKey();
+    var tKey = tavilyKey();
     var sp = syncPrefs();
     var modelOpts = DEEPSEEK_MODELS.map(function (m) {
       return '<option value="' + m + '"' + (m === model ? ' selected' : '') + '>' + m + '</option>';
@@ -1295,6 +1728,23 @@
         (key ? '已保存（' + mask(key) + '）· ' + (hasNativeDeepseek() ? '手表原生通道' : '浏览器直连') : '尚未保存') +
       '</div>';
 
+    var searchKeyBits = [];
+    if (bKey) searchKeyBits.push('博查 ' + mask(bKey));
+    if (tKey) searchKeyBits.push('Tavily ' + mask(tKey));
+    var freeSources = '维基百科' + (hasNativeHttpGet() ? ' / Bing' : '');
+    var searchBody =
+      '<p class="muted">免费来源：维基百科（网页 / 手表）；手表 APK 还会尝试 Bing。找高考原题建议填博查 / Tavily Key，或用手表 APK 联网搜索。</p>' +
+      '<div class="field"><label>博查 Bocha API Key</label>' + secretFieldHtml('bocha-key', bKey ? '已保存（输入新值可覆盖）' : 'sk-…（可选）') + '</div>' +
+      '<div class="field"><label>Tavily API Key</label>' + secretFieldHtml('tavily-key', tKey ? '已保存（输入新值可覆盖）' : 'tvly-…（可选）') + '</div>' +
+      '<div class="btn-row">' +
+        '<button type="button" class="btn" id="btn-save-search">保存搜索 Key</button>' +
+        '<button type="button" class="btn danger" id="btn-clear-bocha">清除博查</button>' +
+        '<button type="button" class="btn danger" id="btn-clear-tavily">清除 Tavily</button>' +
+      '</div>' +
+      '<div class="status-line" id="search-status">' +
+        (searchKeyBits.length ? searchKeyBits.join(' · ') + '（优先使用）' : '未填 Key：使用免费来源（' + freeSources + '）') +
+      '</div>';
+
     var aboutBody =
       '<p class="muted">版本 <strong>' + APK_VERSION + '</strong> · armeabi-v7a</p>' +
       '<div class="btn-row">' +
@@ -1308,10 +1758,13 @@
       fold('fold-gh', 'GitHub 与令牌', token ? '已配置' : '未配置', ghBody, !token) +
       fold('fold-sync', '同步与备份', sp.autoUpload ? '自动上传开' : '手动', syncBody, true) +
       fold('fold-ds', '问答密钥', key ? '已配置' : '未配置', dsBody, !key) +
+      fold('fold-search', '联网搜索', (bKey || tKey) ? '已配置 Key' : '免费来源', searchBody, false) +
       fold('fold-about', '关于与下载', 'v' + APK_VERSION, aboutBody, false);
 
     bindSecretField('gh-token', token);
     bindSecretField('ds-key', key);
+    bindSecretField('bocha-key', bKey);
+    bindSecretField('tavily-key', tKey);
     refreshSyncStatusUi();
 
     $('btn-save-gh').addEventListener('click', function () {
@@ -1338,6 +1791,26 @@
       if (!window.confirm('确定清除本机保存的 DeepSeek API Key 吗？')) return;
       lsSetStr(STORAGE_DS_KEY, '');
       toast('Key 已清除');
+      renderSettings();
+    });
+    $('btn-save-search').addEventListener('click', function () {
+      var b = normalizeToken($('bocha-key').value);
+      var t = normalizeToken($('tavily-key').value);
+      if (b) lsSetStr(STORAGE_BOCHA_KEY, b);
+      if (t) lsSetStr(STORAGE_TAVILY_KEY, t);
+      toast((b || t) ? '搜索 Key 已保存' : '未填新 Key，保留原值');
+      renderSettings();
+    });
+    $('btn-clear-bocha').addEventListener('click', function () {
+      if (!window.confirm('确定清除本机保存的博查 API Key 吗？')) return;
+      lsSetStr(STORAGE_BOCHA_KEY, '');
+      toast('博查 Key 已清除');
+      renderSettings();
+    });
+    $('btn-clear-tavily').addEventListener('click', function () {
+      if (!window.confirm('确定清除本机保存的 Tavily API Key 吗？')) return;
+      lsSetStr(STORAGE_TAVILY_KEY, '');
+      toast('Tavily Key 已清除');
       renderSettings();
     });
 

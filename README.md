@@ -13,11 +13,13 @@
 3. **设置 → DeepSeek**：到 [API Keys](https://platform.deepseek.com/api_keys) 创建密钥，粘贴保存（只存本机，不进仓库）。
 4. 点右上角 **同步** 或「存档 → 拉取任务」，在 **今日** 勾完成、写备注。
 5. **问答**：底部单行输入 → 发送。发送后会显示「正在思考」等待状态。请在真实浏览器里确认 DeepSeek 是否被 CORS 拦截；公式/Markdown 由本地 KaTeX 渲染。
+   - 输入框上方可开 **搜索**：先检索网页，再交给 DeepSeek（默认 `deepseek-flash`）整理，回答末尾附来源链接。
+   - 免费来源：维基百科；手表 APK 还会尝试 Bing。找高考原题建议在 **设置 → 联网搜索** 填博查 / Tavily Key，或用手表 APK。
 6. 到 **存档 → 上传存档**。问答「清屏」只藏界面；完整对话在 `days[].chats`，主 bot 自行分析。
 
 ## 手表 APK
 
-- 下载：[downloads/xiaoxuexiji-watch-armeabi-v7a.apk](downloads/xiaoxuexiji-watch-armeabi-v7a.apk)（versionName **0.3.3**，armeabi-v7a）
+- 下载：[downloads/xiaoxuexiji-watch-armeabi-v7a.apk](downloads/xiaoxuexiji-watch-armeabi-v7a.apk)（versionName **0.3.4**，armeabi-v7a）
 - 校验：同目录 `.sha256`
 - 安装：`adb install -r xiaoxuexiji-watch-armeabi-v7a.apk`
 - 内置最新网页资源；DeepSeek 走原生桥；设置里填 Token/Key（只存手表本地）
