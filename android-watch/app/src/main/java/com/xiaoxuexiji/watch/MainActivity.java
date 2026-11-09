@@ -41,16 +41,20 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * WebView shell for Yore's agent. Ships offline www assets; GitHub sync and
- * DeepSeek chat need network. DeepSeek goes through a JavascriptInterface
- * + HttpURLConnection path so ColorOS WebView CORS cannot block it.
+ * WebView shell for Yore's agent. Ships offline www assets; GitHub sync,
+ * DeepSeek chat and DeepSeek web search need network. DeepSeek chat/search
+ * go through a JavascriptInterface + HttpURLConnection path so ColorOS
+ * WebView CORS cannot block them.
  */
 public class MainActivity extends Activity {
 
     private static final String START_URL = "file:///android_asset/www/index.html";
     private static final String DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
+    private static final String DEEPSEEK_SEARCH_URL = "https://api.deepseek.com/v1/tools/search";
     private static final int FILE_CHOOSER_REQUEST = 4107;
     private static final int HTTP_TIMEOUT_MS = 18000;
+    private static final int SEARCH_CONNECT_TIMEOUT_MS = 18000;
+    private static final int SEARCH_READ_TIMEOUT_MS = 30000;
     private static final int HTTP_MAX_CHARS = 700000;
 
     static {
@@ -290,7 +294,7 @@ public class MainActivity extends Activity {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
 
-    /** Bridge used by app.js: window.StudyHubNative.deepseekChat(id, cbName, json) */
+    /** Bridge used by app.js: window.StudyHubNative.deepseekChat/deepseekSearch(id, cbName, json). */
     private final class StudyHubBridge {
         @JavascriptInterface
         public void deepseekChat(String requestId, String callbackName, String jsonBody) {
@@ -309,7 +313,24 @@ public class MainActivity extends Activity {
             });
         }
 
-        /** Plain https GET for search providers (Bing HTML) so WebView CORS doesn't block it. */
+        @JavascriptInterface
+        public void deepseekSearch(String requestId, String callbackName, String jsonBody) {
+            final String cb = sanitizeCallback(callbackName);
+            netExecutor.execute(() -> {
+                String err = null;
+                String resultJson = null;
+                try {
+                    resultJson = postDeepseekSearch(jsonBody);
+                } catch (Throwable t) {
+                    err = t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
+                }
+                final String errFinal = err;
+                final String resultFinal = resultJson;
+                mainHandler.post(() -> deliverCallback(cb, errFinal, resultFinal));
+            });
+        }
+
+        /** Plain https GET for general-purpose fetches, so WebView CORS doesn't block it. */
         @JavascriptInterface
         public void httpGet(String requestId, String callbackName, String url) {
             final String cb = sanitizeCallback(callbackName);
@@ -371,7 +392,7 @@ public class MainActivity extends Activity {
         conn.setReadTimeout(HTTP_TIMEOUT_MS);
         conn.setRequestMethod("GET");
         conn.setInstanceFollowRedirects(true);
-        // Desktop Chrome UA: Bing mobile HTML often omits real titles; desktop still returns h2 titles.
+        // Desktop Chrome UA keeps generic HTML/JSON endpoints from serving mobile-only pages.
         conn.setRequestProperty("User-Agent",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                         + "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
@@ -422,6 +443,68 @@ public class MainActivity extends Activity {
         HttpURLConnection conn = (HttpURLConnection) new URL(DEEPSEEK_URL).openConnection();
         conn.setConnectTimeout(30000);
         conn.setReadTimeout(120000);
+        conn.setRequestMethod("POST");
+        conn.setDoOutput(true);
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setRequestProperty("Authorization", "Bearer " + apiKey);
+        conn.setRequestProperty("Accept", "application/json");
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(payload);
+        }
+
+        int code = conn.getResponseCode();
+        InputStream stream = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+        String body = readFully(stream);
+        if (code >= 400) {
+            String msg = "HTTP " + code;
+            try {
+                JSONObject err = new JSONObject(body);
+                if (err.has("error")) {
+                    JSONObject e = err.optJSONObject("error");
+                    if (e != null && e.has("message")) msg = e.optString("message", msg);
+                } else if (err.has("message")) {
+                    msg = err.optString("message", msg);
+                }
+            } catch (Throwable ignored) {
+            }
+            if (code == 401) msg = "DeepSeek API Key 无效";
+            if (code == 402) msg = "DeepSeek 余额不足";
+            if (code == 429) msg = "请求过于频繁，稍后再试";
+            throw new IllegalStateException(msg);
+        }
+        return body;
+    }
+
+    private String postDeepseekSearch(String jsonBody) throws Exception {
+        JSONObject incoming = new JSONObject(jsonBody == null ? "{}" : jsonBody);
+        String apiKey = incoming.optString("apiKey", "");
+        if (apiKey.isEmpty()) {
+            throw new IllegalArgumentException("缺少 apiKey");
+        }
+        String query = incoming.optString("query", "").trim();
+        if (query.isEmpty()) {
+            throw new IllegalArgumentException("缺少 query");
+        }
+        if (query.length() > 128) query = query.substring(0, 128);
+        int count = incoming.optInt("count", 6);
+        if (count < 1) count = 1;
+        if (count > 10) count = 10;
+        boolean needContent = incoming.optBoolean("need_content", false);
+
+        JSONObject outbound = new JSONObject();
+        outbound.put("query", query);
+        outbound.put("count", count);
+        outbound.put("need_content", needContent);
+        String oriQuestion = incoming.optString("ori_question", "").trim();
+        if (!oriQuestion.isEmpty()) {
+            if (oriQuestion.length() > 200) oriQuestion = oriQuestion.substring(0, 200);
+            outbound.put("ori_question", oriQuestion);
+        }
+
+        byte[] payload = outbound.toString().getBytes(StandardCharsets.UTF_8);
+        HttpURLConnection conn = (HttpURLConnection) new URL(DEEPSEEK_SEARCH_URL).openConnection();
+        conn.setConnectTimeout(SEARCH_CONNECT_TIMEOUT_MS);
+        conn.setReadTimeout(SEARCH_READ_TIMEOUT_MS);
         conn.setRequestMethod("POST");
         conn.setDoOutput(true);
         conn.setRequestProperty("Content-Type", "application/json");
