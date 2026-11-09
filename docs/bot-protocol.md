@@ -57,7 +57,7 @@ Pages：`https://yoreverse2423.github.io/my-agent/`
 
 也可从 `gaokao/daily/<日期>/tasks.md` 整理后镜像过来。
 
-## `data/student-archive.json`（学生上传，bot 只读）
+## `data/student-archive.json`（学生上传；监工头提取问答后须清空当天记录）
 
 ```json
 {
@@ -73,17 +73,21 @@ Pages：`https://yoreverse2423.github.io/my-agent/`
       "chatSummary": [
         {"subject": "数学", "q": "导数几何意义是什么", "aBrief": "切线斜率…", "at": "2026-11-08T19:10:00+08:00"}
       ],
+      "chats": [],
+      "clearedChatIds": ["m_abc", "m_def"],
       "minutesSpent": 35
     }
   ]
 }
 ```
 
-Bot **不要和学生抢写**：读完分析即可。上传冲突策略在学生端：先 GET 远程，按 `date` 合并后再 PUT——`completedTaskIds` 取并集；`chatSummary` 按 `(at|q)` 去重合并；`weakTopics` 合并去重；`notes` 两侧都有且不同时按 `本地 + "\n---\n" + 远程` 拼接（本地在前）；`minutesSpent` 取较大值。PUT 遇 409 会重新 GET 合并再试，最多 2 次，不盲覆盖。保留约 30 天。
+- **完成勾选 / 备注 / 薄弱点**：仍由学生端写入；科目 bot **不要和学生抢写这些字段**。
+- **问答 / 搜索记录（`chats`、`chatSummary`）**：监工头bot **每天提取完后必须从仓库删掉当天已提取条目**，否则学生端同步合并时旧记录会再次冒出来。
+- 学生端合并：先 GET 远程，按 `date` 合并后再 PUT——`completedTaskIds` 取并集；`weakTopics` 合并去重；`notes` 两侧都有且不同时按 `本地 + "\n---\n" + 远程` 拼接（本地在前）；`minutesSpent` 取较大值；`clearedChatIds` 取并集；`chats` / `chatSummary` 先按原规则并集，再**去掉** `clearedChatIds` 里的 id（摘要无 id 的按已清除对待）。PUT 遇 409 会重新 GET 合并再试，最多 2 次。保留约 30 天。
 
-### `days[].chats`（完整问答，推荐）
+### `days[].chats`（完整问答，含搜索）
 
-学生端把每条问答以稳定 `id` 写入 `chats`（例如 `m_xxx`）。**清屏只隐藏界面**，不删本地/远程 `chats`，刷新后仍按「清屏游标」隐藏已看过的气泡，但上传仍带全部原始对话，供监工头bot 自行分析。不要依赖用户点「生成摘要」。
+学生端把每条问答以稳定 `id` 写入 `chats`（例如 `m_xxx`）。**清屏只隐藏界面**，不删本地/远程 `chats`，刷新后仍按「清屏游标」隐藏已看过的气泡；上传仍带尚未被提取清除的对话。不要依赖用户点「生成摘要」。
 
 ```json
 "chats": [
@@ -92,13 +96,26 @@ Bot **不要和学生抢写**：读完分析即可。上传冲突策略在学生
 ]
 ```
 
-合并规则：按 `id` 去重并集；无 `id` 的旧条目用 `legacy_<at>_<role>_<content前缀>` 兜底。`chatSummary` 仍兼容旧数据，新客户端以 `chats` 为准。
+合并规则：按 `id` 去重并集；无 `id` 的旧条目用 `legacy_<at>_<role>_<content前缀>` 兜底；再过滤 `clearedChatIds`。`chatSummary` 仍兼容旧数据，新客户端以 `chats` 为准。
 
+### 监工头bot：每日提取搜索/问答后清空（强制）
+
+对学习日（Asia/Shanghai，04:00 换日）或约定要处理的日期：
+
+1. GET `data/student-archive.json`（需 Contents 写权限的 token）。
+2. 读取该日 `chats`（优先）与 `chatSummary`：提取学生搜索与问答，写入本机分析笔记（如 `gaokao/daily/<日>/` 或 `data/bot-notes.json`），再按需 `SendToAgent` 通知科目 bot。
+3. **立刻写回仓库清空当天已提取的问答记录**：
+   - 把该日现有每条 `chats[].id`（及无 id 时的 legacy id）并入 `clearedChatIds`；
+   - 将该日 `chats`、`chatSummary` 设为 `[]`；
+   - **保留** `completedTaskIds` / `notes` / `weakTopics` / `minutesSpent`；
+   - 更新顶层 `updatedAt`（`+08:00`），PUT 回 `student-archive.json`（带 sha，冲突则重新 GET 再清再 PUT）。
+4. 科目 bot **不要**把已提取的对话再写回 archive；需要跟进时用监工头通知或 bot-notes。
+5. 未提取前不要空清；提取与清空应在同一轮完成，避免学生同步又把旧气泡合并回来。
 
 ### 监工头bot 读存档后建议流程
 
 1. 看今日 `completedTaskIds` vs `daily-tasks` 里 active 任务 → 完成率。
-2. 读 `notes`、`weakTopics`、`chatSummary` → 归纳薄弱点。
+2. 读 `notes`、`weakTopics`、`chats`/`chatSummary` → 归纳薄弱点；**提取后按上一节清空当天问答**。
 3. `SendToAgent` 通知对应科目 bot（一句话：科目、问题、建议调整）。
 4. 可选写入 `data/bot-notes.json`：
 

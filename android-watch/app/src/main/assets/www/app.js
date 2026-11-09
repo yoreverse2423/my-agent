@@ -25,7 +25,7 @@
   var DEFAULT_DEEPSEEK_MODEL = 'deepseek-flash';
   var PAGES_BASE = 'https://yoreverse2423.github.io/my-agent/';
   var APK_URL = 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk';
-  var APK_VERSION = '0.3.5';
+  var APK_VERSION = '0.3.6';
   var AUTO_UPLOAD_GAP_MS = 5 * 60 * 1000;
   var AUTO_UPLOAD_TICK_MS = 20 * 1000;
   var BRAND_NAME = "Yore's agent";
@@ -232,6 +232,11 @@
     ((state.archive && state.archive.days) || []).forEach(function (d) {
       if (d) d.chats = ensureMsgIds(d.chats || []);
     });
+    // Never resurrect chats the bot already cleared for this student.
+    var cleared = allClearedChatIds(state.archive);
+    if (cleared.length) {
+      state.chat = state.chat.filter(function (m) { return cleared.indexOf(chatIdOf(m)) === -1; });
+    }
   }
 
   function saveArchive() {
@@ -341,6 +346,9 @@
     state.chat.push(msg);
     saveChat();
     var day = ensureDay(studyDate());
+    day.clearedChatIds = day.clearedChatIds || [];
+    // If the bot already cleared this id, don't put it back into the upload archive.
+    if (day.clearedChatIds.indexOf(String(msg.id)) !== -1) return msg;
     day.chats = ensureMsgIds(day.chats || []);
     // de-dupe by id when re-appending
     var exists = false;
@@ -373,6 +381,7 @@
       weakTopics: [],
       chatSummary: [],
       chats: [],
+      clearedChatIds: [],
       minutesSpent: 0
     };
     days.push(day);
@@ -482,23 +491,89 @@
         return;
       }
       // same date: union lists, concatenate distinct notes (local first), max minutes
+      var clearedChatIds = uniqueStrings([].concat(r.clearedChatIds || [], d.clearedChatIds || []));
+      var rawChats = mergeChats(r.chats || [], d.chats || []);
+      var bannedQs = bannedQuestions(r.chats || [], d.chats || [], clearedChatIds);
       map[d.date] = {
         date: d.date,
         completedTaskIds: uniqueStrings([].concat(r.completedTaskIds || [], d.completedTaskIds || [])),
         notes: mergeNotes(d.notes, r.notes),
         weakTopics: mergeWeakTopics(r.weakTopics || [], d.weakTopics || []),
-        chatSummary: mergeChatSummary(r.chatSummary || [], d.chatSummary || []),
-        chats: mergeChats(r.chats || [], d.chats || []),
+        chatSummary: filterClearedChatSummary(mergeChatSummary(r.chatSummary || [], d.chatSummary || []), clearedChatIds, bannedQs),
+        chats: rawChats.filter(function (c) { return clearedChatIds.indexOf(chatIdOf(c)) === -1; }),
+        clearedChatIds: clearedChatIds,
         minutesSpent: Math.max(Number(r.minutesSpent) || 0, Number(d.minutesSpent) || 0)
       };
     });
-    var days = Object.keys(map).sort().map(function (k) { return map[k]; });
+    // Single-sided days never went through the union branch; purge them too.
+    var days = Object.keys(map).sort().map(function (k) { return applyClearedFilter(map[k]); });
     return {
       schemaVersion: 1,
       timezone: 'Asia/Shanghai',
       updatedAt: isoShanghai(),
       days: days.slice(-30)
     };
+  }
+
+  function chatIdOf(c) {
+    if (!c) return '';
+    if (c.id) return String(c.id);
+    return 'legacy_' + (c.at || '') + '_' + (c.role || '') + '_' + String(c.content || '').slice(0, 40);
+  }
+
+  function bannedQuestions(a, b, clearedChatIds) {
+    var banned = {};
+    [].concat(a || [], b || []).forEach(function (c) {
+      if (!c || c.role !== 'user') return;
+      if (clearedChatIds.indexOf(chatIdOf(c)) === -1) return;
+      var q = String(c.content == null ? '' : c.content).trim();
+      if (q) banned[q] = 1;
+    });
+    return banned;
+  }
+
+  function chatSummaryIsCleared(s, clearedChatIds, bannedQs) {
+    if (!s) return false;
+    var sid = s.chatId != null ? s.chatId : s.id;
+    if (sid != null && clearedChatIds.indexOf(String(sid)) !== -1) return true;
+    var q = String(s.q == null ? '' : s.q).trim();
+    if (!q) return false;
+    if (bannedQs[q]) return true;
+    var keys = Object.keys(bannedQs);
+    for (var i = 0; i < keys.length; i++) {
+      var b = keys[i];
+      if (!b) continue;
+      if (q === b || q.indexOf(b) === 0 || b.indexOf(q) === 0) return true;
+    }
+    return false;
+  }
+
+  function filterClearedChatSummary(list, clearedChatIds, bannedQs) {
+    return (list || []).filter(function (s) {
+      return !chatSummaryIsCleared(s, clearedChatIds, bannedQs);
+    });
+  }
+
+  // One-side copies and freshly merged days still need the per-day purge so a
+  // stale local mirror can never resurrect cleared chats on PUT.
+  function applyClearedFilter(day) {
+    if (!day || typeof day !== 'object') return day;
+    day.clearedChatIds = uniqueStrings(day.clearedChatIds || []);
+    var cleared = day.clearedChatIds;
+    if (!cleared.length) return day;
+    var rawChats = day.chats || [];
+    var bannedQs = bannedQuestions(rawChats, [], cleared);
+    day.chats = rawChats.filter(function (c) { return cleared.indexOf(chatIdOf(c)) === -1; });
+    day.chatSummary = filterClearedChatSummary(day.chatSummary || [], cleared, bannedQs);
+    return day;
+  }
+
+  function allClearedChatIds(archive) {
+    var all = [];
+    ((archive && archive.days) || []).forEach(function (d) {
+      if (d && d.clearedChatIds) all = all.concat(d.clearedChatIds);
+    });
+    return uniqueStrings(all);
   }
 
   function uniqueStrings(arr) {
@@ -558,7 +633,7 @@
     var order = [];
     function put(c) {
       if (!c) return;
-      var id = c.id || ('legacy_' + (c.at || '') + '_' + (c.role || '') + '_' + String(c.content || '').slice(0, 40));
+      var id = chatIdOf(c);
       if (!c.id) c = {
         id: id,
         role: c.role,
@@ -640,6 +715,10 @@
       ensureMsgIds(d.chats || []).forEach(function (c) { collected.push(c); });
     });
     state.chat = mergeChats(state.chat || [], collected);
+    var cleared = allClearedChatIds(state.archive);
+    if (cleared.length) {
+      state.chat = state.chat.filter(function (m) { return cleared.indexOf(chatIdOf(m)) === -1; });
+    }
     saveChat();
   }
 
@@ -678,6 +757,8 @@
       var merged = mergeArchiveDays(remote, state.archive || emptyArchive());
       state.archive = merged;
       saveArchive();
+      // The PUT payload may have dropped chats; drop the matching UI bubbles too.
+      hydrateChatFromArchive();
       var body = {
         message: 'sync student archive ' + studyDate(),
         content: padB64(JSON.stringify(merged, null, 2) + '\n'),
