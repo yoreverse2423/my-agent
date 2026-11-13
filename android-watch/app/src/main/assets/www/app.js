@@ -25,7 +25,7 @@
   var DEFAULT_DEEPSEEK_MODEL = 'deepseek-flash';
   var PAGES_BASE = 'https://yoreverse2423.github.io/my-agent/';
   var APK_URL = 'downloads/xiaoxuexiji-watch-armeabi-v7a.apk';
-  var APK_VERSION = '0.3.6';
+  var APK_VERSION = '0.3.7';
   var AUTO_UPLOAD_GAP_MS = 5 * 60 * 1000;
   var AUTO_UPLOAD_TICK_MS = 20 * 1000;
   var BRAND_NAME = "Yore's agent";
@@ -970,6 +970,45 @@
       '\n\n（未检索到网页来源，以上为模型直接回答。）';
   }
 
+  function buildChatApiMessages(question, subject, searchResults) {
+    var results = Array.isArray(searchResults) ? searchResults : [];
+    var lastUser = results.length ? buildSearchUserContent(question, results) : String(question || '');
+    var history = visibleChatMessages();
+    var prior = [];
+    var i;
+    for (i = 0; i < history.length; i++) {
+      var m = history[i];
+      if (!m || (m.role !== 'user' && m.role !== 'assistant')) continue;
+      var text = String(m.content || '').trim();
+      if (!text) continue;
+      prior.push({ role: m.role, content: text });
+    }
+    // The current question is already in the visible log; drop it and re-add below
+    // (search mode may wrap it with retrieved sources).
+    if (prior.length && prior[prior.length - 1].role === 'user') {
+      var last = prior[prior.length - 1].content;
+      if (last === String(question || '') || last === lastUser) prior.pop();
+    }
+
+    var MAX_PRIOR = 16;
+    var MAX_CHARS = 12000;
+    var kept = [];
+    var chars = 0;
+    for (i = prior.length - 1; i >= 0; i--) {
+      var len = prior[i].content.length;
+      if (kept.length >= MAX_PRIOR) break;
+      if (kept.length && chars + len > MAX_CHARS) break;
+      kept.unshift(prior[i]);
+      chars += len;
+    }
+    if (kept.length && kept[0].role === 'assistant') kept.shift();
+
+    var messages = [{ role: 'system', content: systemPrompt(subject) }];
+    for (i = 0; i < kept.length; i++) messages.push(kept[i]);
+    messages.push({ role: 'user', content: lastUser });
+    return messages;
+  }
+
   function askDeepseek(question, subject, searchResults) {
     var key = dsKey();
     if (!key) return Promise.reject(new Error('请先在设置里填写 DeepSeek API Key'));
@@ -978,13 +1017,7 @@
     var results = searched ? searchResults : [];
     var bodyObj = {
       model: model,
-      messages: [
-        { role: 'system', content: systemPrompt(subject) },
-        {
-          role: 'user',
-          content: results.length ? buildSearchUserContent(question, results) : question
-        }
-      ]
+      messages: buildChatApiMessages(question, subject, searchResults)
     };
     if (model !== 'deepseek-reasoner') bodyObj.temperature = results.length ? 0.3 : 0.4;
 
@@ -1454,7 +1487,7 @@
       return '<div class="bubble ' + cls + '" data-id="' + escapeAttr(m.id || '') + '"><div class="bubble-inner">' + body + '</div></div>';
     }).join('');
     if (!log) {
-      log = '<div class="bubble system">在底部输入问题后发送。清屏只藏界面，完整对话仍会保存并上传。</div>';
+      log = '<div class="bubble system">在底部输入问题后发送。同一道题可以接着追问，模型会带上当前屏幕里的对话。清屏后开始新对话；完整记录仍会保存并上传。</div>';
     }
     if (state.busy) {
       log += '<div class="bubble system is-thinking" id="bubble-thinking">正在思考，等待回复<span class="dots"></span></div>';
@@ -1474,7 +1507,7 @@
           '</span>' +
         '</div>' +
         '<div class="chat-composer" id="chat-composer">' +
-          '<button type="button" class="chat-clear-btn" id="btn-chat-clear" title="清屏（只藏界面，对话仍保留）" aria-label="清屏">' + svgIcon('clear') + '</button>' +
+          '<button type="button" class="chat-clear-btn" id="btn-chat-clear" title="清屏（开始新对话，完整记录仍保留）" aria-label="清屏">' + svgIcon('clear') + '</button>' +
           '<input class="chat-input" id="chat-input" type="text" enterkeyhint="send" autocomplete="off" placeholder="把题干或疑问写在这里…">' +
           '<button type="button" class="chat-send" id="btn-ask">发送</button>' +
         '</div>' +
@@ -1501,14 +1534,14 @@
   }
 
   function onClearChatUi() {
-    if (!window.confirm('清屏只会隐藏当前界面上的对话，本机完整记录和上传内容不会删除。确定清屏吗？')) return;
+    if (!window.confirm('清屏后，界面上的对话会隐藏，之后提问不再带上刚才的上下文。本机完整记录和上传内容不会删除。确定清屏吗？')) return;
     var all = ensureMsgIds(state.chat || []);
     var last = all.length ? all[all.length - 1] : null;
     state.chatUi = { clearedBeforeId: last ? last.id : '' };
     // If empty history, mark a synthetic barrier so refresh stays clear until new msgs
     if (!last) state.chatUi.clearedBeforeId = 'cleared_empty_' + Date.now().toString(36);
     saveChatUi();
-    toast('已清屏（完整对话仍保留，上传不受影响）');
+    toast('已清屏（之后提问不再带上刚才的上下文，完整记录仍保留）');
     renderChat();
   }
 

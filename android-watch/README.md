@@ -1,7 +1,7 @@
 # Yore's agent · ColorOS 手表包
 
 - `applicationId`: `com.xiaoxuexiji.watch`
-- `versionName`: `0.3.6`
+- `versionName`: `0.3.7`
 - ABI: `armeabi-v7a` only
 - WebView 壳 + `StudyHubNative.deepseekChat` / `StudyHubNative.deepseekSearch` 原生请求绕过 CORS
 - `StudyHubNative.httpGet(id, cb, url)` 仅允许 https，作为通用 GET 备用通道

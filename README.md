@@ -12,14 +12,14 @@
 2. **设置 → GitHub 与令牌**：填 Owner `yoreverse2423`、Repo `my-agent`，粘贴有 **Contents 读写** 的 PAT，保存。**必须先保存令牌**：未保存时首页「今日任务」和「每日任务」只显示中文引导空态，不会加载本地缓存、样例或公开 raw 文件。
 3. **设置 → DeepSeek**：到 [API Keys](https://platform.deepseek.com/api_keys) 创建密钥，粘贴保存（只存本机，不进仓库）。
 4. 点右上角 **同步** 或「存档 → 拉取任务」，拉取成功后才能在 **今日** 看到任务、勾完成、写备注。没有令牌时点同步会提示先保存令牌。
-5. **问答**：底部单行输入 → 发送。发送后会显示「正在思考」等待状态。请在真实浏览器里确认 DeepSeek 是否被 CORS 拦截；公式/Markdown 由本地 KaTeX 渲染。
+5. **问答**：底部单行输入 → 发送。同一道题可以接着追问，当前屏幕里的对话会作为上下文发给 DeepSeek。发送后会显示「正在思考」等待状态。请在真实浏览器里确认 DeepSeek 是否被 CORS 拦截；公式/Markdown 由本地 KaTeX 渲染。
    - 输入框上方可开 **搜索**：默认走 **DeepSeek 官方联网搜索**（`/v1/tools/search`，与问答共用同一把 DeepSeek Key），再由 DeepSeek（默认 `deepseek-flash`）整理，回答末尾附来源链接。
    - 博查 / Tavily 为可选覆盖：在 **设置 → 联网搜索** 填写后优先使用；不填则用 DeepSeek 联网搜索。
-6. 到 **存档 → 上传存档**。问答「清屏」只藏界面；完整对话在 `days[].chats`，主 bot 自行分析。
+6. 到 **存档 → 上传存档**。问答「清屏」只藏界面并开始新对话（之后提问不再带上已隐藏的上下文）；完整对话仍在 `days[].chats`，主 bot 自行分析。
 
 ## 手表 APK
 
-- 下载：[downloads/xiaoxuexiji-watch-armeabi-v7a.apk](downloads/xiaoxuexiji-watch-armeabi-v7a.apk)（versionName **0.3.6**，armeabi-v7a）
+- 下载：[downloads/xiaoxuexiji-watch-armeabi-v7a.apk](downloads/xiaoxuexiji-watch-armeabi-v7a.apk)（versionName **0.3.7**，armeabi-v7a）
 - 校验：同目录 `.sha256`
 - 安装：`adb install -r xiaoxuexiji-watch-armeabi-v7a.apk`
 - 内置最新网页资源；DeepSeek 问答与联网搜索走原生桥；设置里填 Token/Key（只存手表本地）
