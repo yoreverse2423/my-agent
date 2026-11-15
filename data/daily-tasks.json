@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "timezone": "Asia/Shanghai",
-  "updatedAt": "2026-11-14T09:59:45+08:00",
+  "updatedAt": "2026-11-15T10:20:00+08:00",
   "tasks": [
     {
       "id": "math-2026-11-10-1",
@@ -189,6 +189,28 @@
       "slot": "灵活",
       "status": "active",
       "priority": 3
+    },
+    {
+      "id": "english-2026-11-15-1",
+      "date": "2026-11-15",
+      "subject": "英语",
+      "from": "监工头bot",
+      "title": "小单词机复习（今日小必做·约20–25分钟）",
+      "body": "今天只复习、不学新词。优先：carve、dialect、variety（上周点过「模糊」）；damage、tornado、volcanic eruption、community（点过「不认识」）。再按 App 到期队列刷十个左右，积压约 87 个不用清完。刷完在首页勾完成即可。若周六已经做过同类复习，不必重复。",
+      "slot": "上午",
+      "status": "active",
+      "priority": 1
+    },
+    {
+      "id": "math-2026-11-15-1",
+      "date": "2026-11-15",
+      "subject": "数学",
+      "from": "监工头bot",
+      "title": "只写同角关系（可选·约10–15分钟）",
+      "body": "今天不求一次写完五条，只合上材料写出：1. sin²α+cos²α=？ 2. tanα=？ 写在纸上，写完在首页勾完成；想让数学bot看一眼再发给它。若周六已经写过，直接跳过。",
+      "slot": "下午",
+      "status": "active",
+      "priority": 2
     }
   ]
 }
